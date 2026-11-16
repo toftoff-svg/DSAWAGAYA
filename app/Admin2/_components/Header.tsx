@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cafe } from "../_lib/menu";
 import { checkCloudConnection } from "../_lib/actions";
 import HomeReturnButton from "../../_components/HomeReturnButton";
+import BrandName from "../../_components/BrandName";
 
 const TABS: [string, string][] = [
   ["", "Orders"],
@@ -55,14 +56,14 @@ export default function Header({ cafe }: { cafe: Cafe }) {
     <header className="border-b border-black/5">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <div className="flex items-center gap-3">
-          <div className="emp-bd grid h-10 w-10 place-items-center overflow-hidden rounded-[1.15rem] border text-lg font-black shadow-sm">
+          <div className="brand-name emp-bd grid h-10 w-10 place-items-center overflow-hidden rounded-[1.15rem] border text-lg shadow-sm">
             {cafe.logo ? (
               <Image src={cafe.logo} alt="" width={40} height={40} unoptimized className="h-full w-full object-contain" />
             ) : (
               cafe.name.charAt(0).toUpperCase()
             )}
           </div>
-          <span className="text-xl font-bold tracking-tight">{cafe.name}</span>
+          <BrandName name={cafe.name} className="text-[1.375rem]" />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

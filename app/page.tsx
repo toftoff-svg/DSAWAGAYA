@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getCafe } from './Admin2/_lib/actions';
 import ClearStaffAccess from './_components/ClearStaffAccess';
+import BrandName from './_components/BrandName';
 
 export const instant = false;
 
@@ -22,16 +23,14 @@ export default async function Home() {
     <header className="relative z-10 border-b border-[#B99A55] bg-[#FAF7EF]/80 px-5 py-4 sm:px-8">
     {/* yung parang gold accent */} 
       <div className="mx-auto flex max-w-7xl items-center gap-3">
-        <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-[#2D63B8] bg-[#FCFAF4] text-xl font-bold text-[#164734]">
+        <div className="brand-name grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-[#2D63B8] bg-[#FCFAF4] text-xl text-[#164734]">
           {cafe.logo ? (
             <Image src={cafe.logo} alt="" width={44} height={44} unoptimized className="h-full w-full object-contain" />
           ) : (
             cafe.name.charAt(0).toUpperCase()
           )}
         </div>
-        <span className="text-xl font-bold tracking-tight text-[#164734]">
-          {cafe.name}
-        </span>
+        <BrandName name={cafe.name} className="text-[1.375rem] text-[#164734]" />
       </div>
     </header>
     <section className="relative z-10 flex min-h-[calc(100vh-91px)] items-center justify-center px-5 py-14 sm:px-8">
@@ -41,7 +40,7 @@ export default async function Home() {
           Point of Sale
         </p>
         <h1 className="text-3xl font-bold leading-tight tracking-[-0.03em] text-[#0e4bbe] sm:text-4xl lg:text-[60px]">
-          Welcome to {cafe.name} {/* welcome to WAGAYA*/}
+          Welcome to <BrandName name={cafe.name} className="text-[0.98em] font-normal" />
         </h1>
         <p className="mx-auto mt-5 text-lg font-normal text-[#0e4bbe] sm:text-[12px] sm:leading-tight">
           Choose how you’re using this device.

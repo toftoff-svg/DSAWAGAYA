@@ -21,6 +21,7 @@ import {
 } from "../_lib/actions";
 import { fileToDataUrl } from "../_lib/image";
 import { DEFAULT_CAFE, type Cafe, type SheetsCfg } from "../_lib/menu";
+import BrandName from "../../_components/BrandName";
 
 type Role = "admin" | "employee";
 
@@ -224,14 +225,14 @@ export default function SettingsPage() {
         <input className="emp-input" placeholder="Cafe name" value={cafe.name} onChange={(e) => setCafe((c) => ({ ...c, name: e.target.value }))} />
 
         <div className="mt-4 flex items-center gap-3">
-          <div className="emp-bd grid h-14 w-14 place-items-center overflow-hidden rounded-full border-2 text-xl font-black">
+          <div className="brand-name emp-bd grid h-14 w-14 place-items-center overflow-hidden rounded-full border-2 text-xl">
             {cafe.logo ? (
               <Image src={cafe.logo} alt="" width={56} height={56} unoptimized className="h-full w-full object-contain" />
             ) : (
               (cafe.name || "W").charAt(0).toUpperCase()
             )}
           </div>
-          <span className="text-xl font-bold">{cafe.name || DEFAULT_CAFE.name}</span>
+          <BrandName name={cafe.name || DEFAULT_CAFE.name} className="text-[1.375rem]" />
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

@@ -13,18 +13,9 @@ export type OrderLine = {
   qty: number
 }
 
-export type PlacedOrder = {
-  orderNumber: number
-  time: string
-  lines: OrderLine[]
-  total: number
-}
-
 type CustomerOrderState = {
   order: OrderLine[]
   setOrder: Dispatch<SetStateAction<OrderLine[]>>
-  placedOrders: PlacedOrder[]
-  setPlacedOrders: Dispatch<SetStateAction<PlacedOrder[]>>
   payment: PaymentMethod
   setPayment: Dispatch<SetStateAction<PaymentMethod>>
   customerName: string
@@ -35,12 +26,11 @@ const CustomerOrderContext = createContext<CustomerOrderState | null>(null)
 
 export function CustomerOrderProvider({ children }: { children: ReactNode }) {
   const [order, setOrder] = useState<OrderLine[]>([])
-  const [placedOrders, setPlacedOrders] = useState<PlacedOrder[]>([])
   const [payment, setPayment] = useState<PaymentMethod>('cash')
   const [customerName, setCustomerName] = useState('')
 
   return (
-    <CustomerOrderContext.Provider value={{ order, setOrder, placedOrders, setPlacedOrders, payment, setPayment, customerName, setCustomerName }}>
+    <CustomerOrderContext.Provider value={{ order, setOrder, payment, setPayment, customerName, setCustomerName }}>
       {children}
     </CustomerOrderContext.Provider>
   )

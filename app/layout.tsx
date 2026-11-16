@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bowlby_One_SC, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import CloudStatus from "./_components/CloudStatus";
 
@@ -13,6 +13,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const brandDisplay = Bowlby_One_SC({
+  variable: "--font-wagaya-display",
+  weight: "400",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "Wagaya",
   description: "is wagaya",
@@ -22,7 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${brandDisplay.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

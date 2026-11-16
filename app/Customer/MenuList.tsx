@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { memo, useCallback, useEffect, useState } from 'react'
 import BestSellerStar from '../_components/BestSellerStar'
 import { submitOrder } from './actions'
-import { useCustomerOrder, type PlacedOrder } from './_context/OrderContext'
+import { useCustomerOrder } from './_context/OrderContext'
 
 type MenuItem = {
   id: number | string
@@ -24,6 +24,13 @@ type MenuItem = {
 // Change these to whatever sugar options you want
 const SUGAR_LEVELS = ['0%', '25%', '50%', '75%', '100%']
 const DEFAULT_SUGAR = '100%'
+const MATCHA_FACTS = [
+  'Our matcha comes from Shizuoka, Japan, a region renowned for its rich tea-growing tradition.',
+  'We use the Okumidori cultivar, known for its vibrant green color.',
+  'Okumidori has a naturally smooth, mellow character, with notes of umami and gentle sweetness.',
+  'Each cup finishes soft and creamy.',
+  'Our matcha is first-harvest (first flush) and shade-grown, allowing deeper umami and a more delicate, refined flavor.',
+]
 
 const peso = (n: number) =>
   '₱' + n.toLocaleString(undefined, { minimumFractionDigits: 2 })
@@ -89,7 +96,7 @@ export default function MenuList({
   section: 'drinks' | 'pastries'
 }) {
   // The order being built right now
-  const { order, setOrder, placedOrders, setPlacedOrders, payment, setPayment, customerName, setCustomerName } = useCustomerOrder()
+  const { order, setOrder, payment, setPayment, customerName, setCustomerName } = useCustomerOrder()
 
   // The drink popup (null = closed)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
@@ -102,6 +109,7 @@ export default function MenuList({
   const [showConfirm, setShowConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [receiptFact, setReceiptFact] = useState<string | null>(null)
 
   useEffect(() => {
     if (!selectedItem) return
@@ -111,6 +119,15 @@ export default function MenuList({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedItem])
+
+  useEffect(() => {
+    if (!receiptFact) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setReceiptFact(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [receiptFact])
 
   const openItem = useCallback((item: MenuItem) => {
     setSelectedItem(item)
@@ -210,13 +227,7 @@ export default function MenuList({
         return
       }
 
-      const newOrder: PlacedOrder = {
-        orderNumber: result.orderNumber,
-        time: new Date().toLocaleTimeString(),
-        lines: order,
-        total,
-      }
-      setPlacedOrders((prev) => [...prev, newOrder])
+      setReceiptFact(MATCHA_FACTS[Math.floor(Math.random() * MATCHA_FACTS.length)])
       setOrder([])
       setCustomerName('')
       setShowConfirm(false)
@@ -375,27 +386,6 @@ export default function MenuList({
           </button>
         </aside>
 
-        {placedOrders.length > 0 && (
-          <aside className="emp-bd rounded-3xl border-2 bg-[#FCFAF4] p-5 text-[#263B32] shadow-sm">
-            <h2 className="mb-3 text-lg font-bold text-[#164734]">Placed Orders</h2>
-            {placedOrders.map((o) => (
-              <div key={o.orderNumber} className="emp-bd mb-3 border-b pb-3 text-sm">
-                <p className="font-bold">
-                  Order #{o.orderNumber}{' '}
-                  <span className="font-mono font-normal opacity-70">{o.time}</span>
-                </p>
-                {o.lines.map((line) => (
-                  <p key={line.lineId}>
-                    {line.qty} × {line.name}
-                    {line.sugar ? ` (${line.sugar} sugar)` : ''}
-                    {line.notes ? ` – ${line.notes}` : ''}
-                  </p>
-                ))}
-                <p className="font-mono font-bold mt-1">{peso(o.total)}</p>
-              </div>
-            ))}
-          </aside>
-        )}
       </div>
 
       {/* ---------- DRINK POPUP ---------- */}
@@ -579,6 +569,36 @@ export default function MenuList({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {receiptFact && (
+        <div
+          className="fixed inset-0 z-[60] grid place-items-center bg-[#153D2E]/45 p-4"
+          role="presentation"
+          onClick={() => setReceiptFact(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-receipt-title"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-sm rounded-3xl border border-[#B99A55]/80 bg-[#FCFAF4] p-7 text-center text-[#263B32] shadow-2xl"
+          >
+            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-[#B99A55]" />
+            <h2 id="order-receipt-title" className="font-serif text-2xl font-bold text-[#164734]">
+              Thank you for your order!
+            </h2>
+            <p className="mt-4 border-t border-dashed border-[#B99A55]/60 pt-4 text-sm leading-relaxed text-[#4C6B54]">
+              {receiptFact}
+            </p>
+            <button
+              type="button"
+              onClick={() => setReceiptFact(null)}
+              className="emp-solid mt-6 rounded-full px-8 py-2 text-sm font-bold"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

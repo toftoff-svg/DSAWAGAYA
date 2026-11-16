@@ -789,7 +789,25 @@ export async function getSales(range?: SalesRange): Promise<Result<SalesSummary>
     const lines = orders.flatMap((o) => linesOf(o, pricing));
 
     const info = await loadStarInfo(supabase);
-    const leaderboard: LeaderRow[] = [...info.counts.entries()]
+    const leaderboardOrders = (info.orders as Row[]).filter((order) => {
+      const placed = Date.parse(String(order.placed ?? ""));
+      if (!Number.isFinite(placed)) return false;
+      if (range?.from && placed < Date.parse(range.from)) return false;
+      if (range?.to && placed >= Date.parse(range.to)) return false;
+      if (range?.payment && (order.payment === "qr" ? "qr" : "cash") !== range.payment) return false;
+      return true;
+    });
+    const productTotals = new Map<string, number>();
+    for (const order of leaderboardOrders) {
+      for (const item of (Array.isArray(order.items) ? order.items : []) as OrderItem[]) {
+        const name = String(item?.name ?? "");
+        const qty = Number(item?.q ?? 1);
+        if (name && Number.isFinite(qty) && qty > 0) {
+          productTotals.set(name, (productTotals.get(name) ?? 0) + qty);
+        }
+      }
+    }
+    const leaderboard: LeaderRow[] = [...productTotals.entries()]
       .map(([name, qty]) => {
         const m = info.menu.find((x) => x.name === name);
         const id = m ? String(m.id) : null;
@@ -806,12 +824,12 @@ export async function getSales(range?: SalesRange): Promise<Result<SalesSummary>
       .slice(0, 10);
 
     const customerTotals = new Map<string, { orders: number; items: number; revenue: number }>();
-    for (const order of orders) {
+    for (const order of leaderboardOrders) {
       const name = String(order.customer_name ?? "Walk-in").trim() || "Walk-in";
       const current = customerTotals.get(name) ?? { orders: 0, items: 0, revenue: 0 };
       current.orders += 1;
       current.revenue += Number(order.total) || 0;
-      current.items += (Array.isArray(order.items) ? order.items : []).reduce((sum, item) => sum + (Number(item?.q) || 1), 0);
+      current.items += (Array.isArray(order.items) ? order.items : []).reduce((sum, item) => sum + (Number(item?.q ?? 1) || 1), 0);
       customerTotals.set(name, current);
     }
     const customerLeaderboard = [...customerTotals.entries()]
@@ -1054,11 +1072,16 @@ export async function setStar(menuId: number | string, on: boolean): Promise<Res
 
 // every finished order ever (done + cleared) counted by drink name
 async function loadStarInfo(supabase: DB) {
-  const [ordersRes, menuRes, cfg] = await Promise.all([
-    supabase.from("orders").select("items").in("status", ["done", "cleared"]),
+  const [resetAt, menuRes, cfg] = await Promise.all([
+    readSetting<string>(supabase, "leaderboardResetAt"),
     supabase.from("menu").select("id, name, price, category"),
     readSetting<Partial<StarCfg>>(supabase, "stars"),
   ]);
+  let ordersQuery = supabase.from("orders").select("items, placed, total, customer_name, payment").in("status", ["done", "cleared"]);
+  if (typeof resetAt === "string" && Number.isFinite(Date.parse(resetAt))) {
+    ordersQuery = ordersQuery.gte("placed", resetAt);
+  }
+  const ordersRes = await ordersQuery;
   if (ordersRes.error) throw new Error(ordersRes.error.message);
 
   const counts = new Map<string, number>();
@@ -1092,7 +1115,7 @@ async function loadStarInfo(supabase: DB) {
       if (m) effective.add(String(m.id));
     }
   }
-  return { counts, menu, cfg: starCfg, effective: [...effective] };
+  return { counts, menu, cfg: starCfg, effective: [...effective], orders: ordersRes.data ?? [] };
 }
 
 /** Used by the customer screen: the quick options and which drinks get the gold star. */

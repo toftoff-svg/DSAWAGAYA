@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import type { Cafe } from "../../Admin2/_lib/menu";
 import HomeReturnButton from "../../_components/HomeReturnButton";
+import BrandName from "../../_components/BrandName";
 
 export default function Header({ cafe }: { cafe: Cafe }) {
   const pathname = usePathname() ?? "";
@@ -31,10 +32,10 @@ export default function Header({ cafe }: { cafe: Cafe }) {
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
         {/* top left: logo + store name */}
         <div className="flex items-center gap-3">
-          <div className="emp-photo grid h-11 w-11 place-items-center overflow-hidden rounded-full border text-xl font-bold text-[#164734]">
+          <div className="brand-name emp-photo grid h-11 w-11 place-items-center overflow-hidden rounded-full border text-xl text-[#164734]">
             {cafe.logo ? <Image src={cafe.logo} alt="" width={44} height={44} unoptimized className="h-full w-full object-contain" /> : cafe.name.charAt(0).toUpperCase()}
           </div>
-          <span className="text-xl font-bold tracking-tight text-[#164734]">{cafe.name}</span>
+          <BrandName name={cafe.name} className="text-[1.375rem] text-[#164734]" />
         </div>
 
         <div className="flex items-center gap-2">

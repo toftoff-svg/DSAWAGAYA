@@ -18,6 +18,21 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+.brand-name {
+  font-family: var(--font-wagaya-display), var(--font-geist-sans), sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.brand-name-visual {
+  white-space: pre-wrap;
+}
+
+.brand-name-letter {
+  display: inline-block;
+  transform-origin: center bottom;
+}
+
 button:not([data-no-motion]),
 a[href]:not([data-no-motion]),
 [role="button"]:not([data-no-motion]),

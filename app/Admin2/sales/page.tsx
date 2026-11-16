@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BestSellerStar from "../../_components/BestSellerStar";
 import Modal from "../_components/Modal";
-import { getSales, resetSales, setStar } from "../_lib/actions";
+import { getSales, resetSales, resetSalesLeaderboard, setStar } from "../_lib/actions";
 import { peso, type PaymentMethod, type SalesSummary } from "../_lib/menu";
 
 export default function SalesPage() {
-  const [period, setPeriod] = useState<"today" | "week" | "last-week" | "range">("today");
+  const [period, setPeriod] = useState<"today" | "week" | "last-week" | "range" | "all-time">("today");
   const [paymentFilter, setPaymentFilter] = useState<"all" | PaymentMethod>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -18,8 +18,13 @@ export default function SalesPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetTarget, setResetTarget] = useState<"pos" | "sheets" | "both">("pos");
   const [resetting, setResetting] = useState(false);
+  const [confirmLeaderboardReset, setConfirmLeaderboardReset] = useState(false);
+  const [resettingLeaderboard, setResettingLeaderboard] = useState(false);
 
   const range = useMemo(() => {
+    if (period === "all-time") {
+      return { payment: paymentFilter === "all" ? undefined : paymentFilter };
+    }
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     if (period === "week") {
@@ -38,6 +43,18 @@ export default function SalesPage() {
     else end.setDate(start.getDate() + 1);
     return { from: start.toISOString(), to: end.toISOString(), payment: paymentFilter === "all" ? undefined : paymentFilter };
   }, [fromDate, paymentFilter, period, toDate]);
+
+  const leaderboardPeriod = period === "all-time"
+    ? "All time"
+    : period === "today"
+      ? "Today"
+      : period === "week"
+        ? "This week"
+        : period === "last-week"
+          ? "Last week"
+          : fromDate && toDate
+            ? `${fromDate} – ${toDate}`
+            : fromDate || "Choose dates";
 
   const load = useCallback(async () => {
     const res = await getSales(range);
@@ -86,6 +103,18 @@ export default function SalesPage() {
     }
   };
 
+  const doLeaderboardReset = async () => {
+    setResettingLeaderboard(true);
+    const res = await resetSalesLeaderboard();
+    setResettingLeaderboard(false);
+    if (!res.ok) setError(`Couldn’t reset leaderboards: ${res.error}`);
+    else {
+      setConfirmLeaderboardReset(false);
+      setError(null);
+      load();
+    }
+  };
+
   const card = (label: string, value: string) => (
     <div className="emp-bd rounded-2xl border-2 p-4">
       <p className="text-sm font-bold">{label}</p>
@@ -100,9 +129,19 @@ export default function SalesPage() {
           <h1 className="text-xl font-bold">Sales</h1>
           <p className="mb-4 text-xs opacity-70">Newest first</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <button type="button" onClick={copyTable} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
             {copied ? "Copied!" : "Copy Whole table"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setConfirmLeaderboardReset(true);
+            }}
+            className="text-sm font-semibold emp-danger"
+          >
+            RESET LEADERBOARD
           </button>
           <button
             type="button"
@@ -120,12 +159,13 @@ export default function SalesPage() {
 
       <div className="emp-bd my-4 flex flex-wrap items-end gap-2 rounded-2xl border-2 p-3">
         <label className="text-xs font-semibold">
-          Period
+          Sales & leaderboard period
           <select className="emp-input mt-1 min-w-36" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>
             <option value="today">Today</option>
             <option value="week">This week</option>
             <option value="last-week">Last week</option>
             <option value="range">Date range</option>
+            <option value="all-time">All time</option>
           </select>
         </label>
         <label className="text-xs font-semibold">
@@ -163,7 +203,7 @@ export default function SalesPage() {
       <div className="emp-bd mt-6 rounded-2xl border-2 p-4">
         <div className="emp-row flex items-center justify-between pb-2">
           <h2 className="font-bold">Leaderboard · Most Ordered</h2>
-          <span className="text-xs opacity-70">All time</span>
+          <span className="text-xs opacity-70">{leaderboardPeriod}</span>
         </div>
         {data && data.leaderboard.length > 0 ? (
           <ol className="mt-3 space-y-3">
@@ -204,6 +244,30 @@ export default function SalesPage() {
           </ol>
         ) : (
           <p className="mt-3 text-sm opacity-70">Nothing sold yet. The ranking appears after the first finished order.</p>
+        )}
+      </div>
+
+      <div className="emp-bd mt-6 rounded-2xl border-2 p-4">
+        <div className="emp-row flex items-center justify-between pb-2">
+          <h2 className="font-bold">Leaderboard · Customers</h2>
+          <span className="text-xs opacity-70">{leaderboardPeriod}</span>
+        </div>
+        {data && data.customerLeaderboard.length > 0 ? (
+          <ol className="mt-3 space-y-3">
+            {data.customerLeaderboard.map((customer, i) => (
+              <li key={customer.name} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate">
+                  <span className="mr-3 inline-block w-5 text-center font-black">{i + 1}</span>
+                  <span className="font-semibold">{customer.name}</span>
+                </span>
+                <span className="shrink-0 text-right">
+                  {customer.orders} orders · {customer.items} items · {peso(customer.revenue)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-sm opacity-70">No customer orders in this period.</p>
         )}
       </div>
 
@@ -277,6 +341,36 @@ export default function SalesPage() {
             </button>
             <button type="button" onClick={doReset} disabled={resetting} className="emp-bd emp-solid rounded-full border-2 px-5 py-2 font-bold disabled:opacity-50">
               {resetting ? "Resetting…" : `Reset ${resetTarget === "pos" ? "POS" : resetTarget === "sheets" ? "Sheets" : "Both"}`}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {confirmLeaderboardReset && (
+        <Modal
+          title="Reset leaderboards"
+          onClose={() => !resettingLeaderboard && setConfirmLeaderboardReset(false)}
+          closeOnEsc={!resettingLeaderboard}
+        >
+          <p className="text-sm">
+            Reset product and customer leaderboard totals from now on. Sales history and orders will not be deleted.
+          </p>
+          {error && <p className="mt-3 text-sm emp-danger">{error}</p>}
+          <div className="mt-5 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setConfirmLeaderboardReset(false)}
+              disabled={resettingLeaderboard}
+              className="emp-bd rounded-full border-2 px-5 py-2"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={doLeaderboardReset}
+              disabled={resettingLeaderboard}
+              className="emp-bd emp-solid rounded-full border-2 px-5 py-2 font-bold disabled:opacity-50"
+            >
+              {resettingLeaderboard ? "Resetting…" : "Reset leaderboard"}
             </button>
           </div>
         </Modal>
