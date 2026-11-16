@@ -851,7 +851,10 @@ export async function resetSales(target: "pos" | "sheets" | "both"): Promise<Res
       const cfg = await readSetting<SheetsCfg>(supabase, "sheets");
       if (!cfg?.url) return fail("Save the Google Sheets script URL in Settings first.");
       try {
-        await postSheets(cfg.url, cfg.code, { resetSales: true });
+        const response = await postSheets(cfg.url, cfg.code, { resetSales: true });
+        if (typeof response.cleared !== "number") {
+          throw new Error("The deployed Google Sheets script is outdated. Paste the current Apps Script and deploy a new version.");
+        }
       } catch (e) {
         return fail(e);
       }
@@ -932,7 +935,7 @@ async function postSheets(url: string, code: string, payload: Record<string, unk
     cache: "no-store",
   });
   const text = await res.text();
-  let json: { ok?: boolean; error?: string; added?: number };
+  let json: { ok?: boolean; error?: string; added?: number; cleared?: number };
   try {
     json = JSON.parse(text);
   } catch {

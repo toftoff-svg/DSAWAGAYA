@@ -13,6 +13,7 @@ Run `_docs/SETUP.sql` in Supabase > SQL Editor. It adds the menu category column
 6. In the app: Settings > Google Sheets. Paste the URL and the same code.
    Press Save, then Test Connection.
 7. If you update the Apps Script later, deploy a new version of the existing web app deployment.
+   The Sales reset requires the latest script; the app reports an outdated deployment if it does not receive a cleared-row count.
 
 ## 3. Stock deduction for customer orders (2 lines)
 Stock comes off the moment an order is placed. Orders from the admin pages already do this.
