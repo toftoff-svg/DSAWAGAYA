@@ -19,7 +19,7 @@ type Ctx = {
 };
 
 const OrderContext = createContext<Ctx | null>(null);
-const POLL_MS = 2500;
+const POLL_MS = 5000;
 
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -29,6 +29,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [queueError, setQueueError] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
   const refreshing = useRef(false);
+  const queueSignature = useRef("");
 
   const refresh = useCallback(async () => {
     if (refreshing.current || document.visibilityState !== "visible") return;
@@ -36,7 +37,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await getQueue();
       if (res.ok) {
-        setQueue(res.data);
+        const nextSignature = JSON.stringify(res.data);
+        if (nextSignature !== queueSignature.current) {
+          queueSignature.current = nextSignature;
+          setQueue(res.data);
+        }
         setQueueError(null);
       } else {
         setQueueError(res.error);
@@ -98,6 +103,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const finish = useCallback(
     async (id: number, status: "done" | "cancelled") => {
+      queueSignature.current = "";
       setQueue((q) => q.filter((o) => o.id !== id)); // remove right away
       try {
         const res = await setOrderStatus(id, status);
@@ -109,24 +115,25 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     [refresh]
   );
 
-  return (
-    <OrderContext.Provider
-      value={{
-        cart,
-        queue,
-        queueError,
-        placing,
-        total,
-        addToCart,
-        changeQty,
-        placeOrder,
-        completeOrder: (id) => finish(id, "done"),
-        cancelOrder: (id) => finish(id, "cancelled"),
-      }}
-    >
-      {children}
-    </OrderContext.Provider>
+  const completeOrder = useCallback((id: number) => finish(id, "done"), [finish]);
+  const cancelOrder = useCallback((id: number) => finish(id, "cancelled"), [finish]);
+  const contextValue = useMemo(
+    () => ({
+      cart,
+      queue,
+      queueError,
+      placing,
+      total,
+      addToCart,
+      changeQty,
+      placeOrder,
+      completeOrder,
+      cancelOrder,
+    }),
+    [cart, queue, queueError, placing, total, addToCart, changeQty, placeOrder, completeOrder, cancelOrder]
   );
+
+  return <OrderContext.Provider value={contextValue}>{children}</OrderContext.Provider>;
 }
 
 export function useOrders() {

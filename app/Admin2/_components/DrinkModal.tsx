@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
+import BestSellerStar from "../../_components/BestSellerStar";
 import { DEFAULT_SUGAR, SUGAR_LEVELS, hasSugar, peso, type CartItem, type MenuRow } from "../_lib/menu";
 
 type Props = {
@@ -55,12 +57,11 @@ export default function DrinkModal({ drink, options, starred, onClose, onAdd }: 
         aria-modal="true"
         aria-label={drink.name}
         onClick={(event) => event.stopPropagation()}
-        className="emp emp-bd max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[2rem] border-2 p-6"
+        className="emp emp-bd modal-scroll max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[2rem] border-2 p-6"
       >
         <div className="emp-bd mx-auto mb-4 grid h-20 w-20 place-items-center overflow-hidden rounded-3xl border-2">
           {drink.photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={drink.photo} alt={drink.name} className="h-full w-full object-contain" />
+            <Image src={drink.photo} alt={drink.name} width={80} height={80} unoptimized className="h-full w-full object-contain" />
           ) : (
             <span className="text-xs opacity-60">No photo</span>
           )}
@@ -68,7 +69,7 @@ export default function DrinkModal({ drink, options, starred, onClose, onAdd }: 
 
         <h2 className="text-2xl font-bold">
           {drink.name}
-          {starred && <span className="emp-accent ml-2" title="Best seller" aria-label="Best seller">★</span>}
+          {starred && <BestSellerStar />}
         </h2>
         <p className="text-sm opacity-70">Base price {peso(drink.price)}</p>
 

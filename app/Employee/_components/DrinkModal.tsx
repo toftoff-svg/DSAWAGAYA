@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { DEFAULT_SUGAR, SUGAR_LEVELS, hasSugar, peso, type CartItem, type MenuRow } from "../_lib/menu";
 
@@ -11,7 +12,7 @@ type Props = {
 };
 
 export default function DrinkModal({ drink, options, onClose, onAdd }: Props) {
-  const showSugar = hasSugar(drink.sugar); // only drinks with sugar "on"
+  const showSugar = drink.category === "drinks" && hasSugar(drink.sugar);
   const [sugar, setSugar] = useState<string>(DEFAULT_SUGAR);
   const [qty, setQty] = useState(1);
   const [pickedOptions, setPickedOptions] = useState<string[]>([]);
@@ -77,18 +78,19 @@ export default function DrinkModal({ drink, options, onClose, onAdd }: Props) {
         aria-modal="true"
         aria-label={drink.name}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-800 shadow-xl"
+        className="modal-scroll max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border bg-[#FCFAF4] p-6 text-slate-800 shadow-xl"
+        style={{ borderColor: drink.color || "#0F47AF" }}
       >
-        <div className="mx-auto mb-4 grid h-28 w-28 place-items-center overflow-hidden rounded-2xl border-[3px] border-black">
+        <div className="mx-auto mb-4 grid h-28 w-28 place-items-center overflow-hidden rounded-2xl border-[3px]" style={{ borderColor: drink.color || "#0F47AF" }}>
           {drink.photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={drink.photo} alt={drink.name} className="h-full w-full object-contain" />
+            <Image src={drink.photo} alt={drink.name} width={112} height={112} unoptimized className="h-full w-full object-contain" />
           ) : (
             <span className="text-xs font-bold text-neutral-400">NO IMAGE</span>
           )}
         </div>
 
         <h2 className="text-xl font-black">{drink.name}</h2>
+        {drink.description && <p className="mt-1 text-sm text-neutral-500">{drink.description}</p>}
         <p className="mb-4 text-xs text-neutral-500">Base price {peso(drink.price)}</p>
 
         {showSugar && (
@@ -104,7 +106,7 @@ export default function DrinkModal({ drink, options, onClose, onAdd }: Props) {
           </>
         )}
 
-        {options.length > 0 && (
+        {drink.category === "drinks" && options.length > 0 && (
           <>
             <p className="mb-2 text-xs font-bold uppercase">Special requests</p>
             <div className="mb-4 flex flex-wrap gap-2">
@@ -135,7 +137,7 @@ export default function DrinkModal({ drink, options, onClose, onAdd }: Props) {
         <div className="mb-5 flex items-center justify-between">
           <div>
             <p className="font-bold">Quantity</p>
-            <p className="text-xs text-neutral-500">How many of this drink?</p>
+            <p className="text-xs text-neutral-500">How many of this item?</p>
           </div>
           <div className="flex items-center gap-3 rounded-full border-2 border-[#B7C2A5] px-3 py-1">
             <button type="button" aria-label="Decrease quantity" onClick={() => setQty((q) => Math.max(1, q - 1))} className="text-lg font-bold leading-none">

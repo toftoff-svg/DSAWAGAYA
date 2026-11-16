@@ -2,7 +2,8 @@
 
 // Server actions: these use the SAME Supabase connection as your customer side.
 import { createClient } from "@/utils/supabase/server";
-import type { CartItem, MenuRow, QueueOrder } from "./menu";
+import type { CartItem, MenuRow, PaymentMethod, QueueOrder } from "./menu";
+import { setOrderStatus as updateOrderStatus } from "../../Admin2/_lib/actions";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -10,7 +11,12 @@ export async function getMenu(): Promise<Result<MenuRow[]>> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("menu").select("*").order("o", { ascending: true });
   if (error) return { ok: false, error: error.message };
-  return { ok: true, data: (data ?? []) as MenuRow[] };
+  const menu = (data ?? []).map((item) => ({
+    ...item,
+    category: String(item.category ?? "drinks").toLowerCase() === "pastries" ? "pastries" : "drinks",
+    color: /^#[0-9a-f]{6}$/i.test(String(item.color ?? "")) ? String(item.color) : "#0F47AF",
+  })) as MenuRow[];
+  return { ok: true, data: menu };
 }
 
 export async function getOrderOptions(): Promise<string[]> {
@@ -26,7 +32,7 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
   const [ordersRes, menuRes, timeoutRes] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, num, placed, total, items")
+      .select("id, num, placed, total, items, payment, customer_name")
       .eq("status", "waiting")
       .order("placed", { ascending: true }),
     supabase.from("menu").select("name, price"),
@@ -52,6 +58,8 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
     number: Number(r.num),
     createdAt: Date.parse(r.placed),
     total: Number(r.total) || 0,
+    payment: r.payment === "qr" ? "qr" : "cash",
+    customerName: String(r.customer_name ?? "Walk-in"),
     timeoutMinutes,
     items: (Array.isArray(r.items) ? r.items : []).map(
       (x, i): CartItem => ({
@@ -70,18 +78,17 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
 }
 
 export async function setOrderStatus(id: number, status: "done" | "cancelled"): Promise<Result<null>> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("orders").update({ status }).eq("id", id);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, data: null };
+  return updateOrderStatus(id, status);
 }
 
 type LineInput = { id: number | string; sugar: string | null; qty: number; notes?: string | null };
 type RecipeEntry = { ing: number | string; amt: number };
 
 /** Place an order from the employee Orders page (same format as the customer side). */
-export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumber: number }>> {
+export async function placeOrder(lines: LineInput[], payment: PaymentMethod = "cash", customerName = ""): Promise<Result<{ orderNumber: number }>> {
   if (!lines || lines.length === 0) return { ok: false, error: "The order is empty." };
+  const normalizedCustomerName = customerName.trim().slice(0, 80);
+  if (!normalizedCustomerName) return { ok: false, error: "Customer name is required." };
 
   const supabase = await createClient();
 
@@ -131,6 +138,8 @@ export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumb
     items,
     use,
     status: "waiting",
+    payment,
+    customer_name: normalizedCustomerName,
   });
   if (error) return { ok: false, error: error.message };
 

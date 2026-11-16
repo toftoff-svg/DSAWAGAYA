@@ -2,7 +2,7 @@
 
 // Server actions: these use the SAME Supabase connection as your customer side.
 import { createClient } from "@/utils/supabase/server";
-import type { CartItem, MenuRow, QueueOrder } from "./menu";
+import type { CartItem, MenuRow, PaymentMethod, QueueOrder } from "./menu";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -26,7 +26,7 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
   const [ordersRes, menuRes, timeoutRes] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, num, placed, total, items")
+      .select("id, num, placed, total, items, payment, customer_name")
       .eq("status", "waiting")
       .order("placed", { ascending: true }),
     supabase.from("menu").select("name, price"),
@@ -52,6 +52,8 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
     number: Number(r.num),
     createdAt: Date.parse(r.placed),
     total: Number(r.total) || 0,
+    payment: r.payment === "qr" ? "qr" : "cash",
+    customerName: String(r.customer_name ?? "Walk-in"),
     timeoutMinutes,
     items: (Array.isArray(r.items) ? r.items : []).map(
       (x, i): CartItem => ({
@@ -80,7 +82,7 @@ type LineInput = { id: number | string; sugar: string | null; qty: number; notes
 type RecipeEntry = { ing: number | string; amt: number };
 
 /** Place an order from the employee Orders page (same format as the customer side). */
-export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumber: number }>> {
+export async function placeOrder(lines: LineInput[], payment: PaymentMethod = "cash", customerName = ""): Promise<Result<{ orderNumber: number }>> {
   if (!lines || lines.length === 0) return { ok: false, error: "The order is empty." };
 
   const supabase = await createClient();
@@ -131,6 +133,8 @@ export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumb
     items,
     use,
     status: "waiting",
+    payment,
+    customer_name: customerName.trim().slice(0, 80),
   });
   if (error) return { ok: false, error: error.message };
 

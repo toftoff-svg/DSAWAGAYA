@@ -1,37 +1,24 @@
 'use client'
 
-import { useState } from 'react'
+import Link from 'next/link'
+import Image from 'next/image'
+import { memo, useCallback, useEffect, useState } from 'react'
+import BestSellerStar from '../_components/BestSellerStar'
 import { submitOrder } from './actions'
+import { useCustomerOrder, type PlacedOrder } from './_context/OrderContext'
 
 type MenuItem = {
   id: number | string
   name: string
-  price: number | null
   description?: string | null
+  color?: string | null
+  price: number | null
   category?: string | null
   photo?: string | null
   // From your menu table: sugar levels only show when "on" is true
   sugar?: { on?: boolean } | null
-  // true = shows the blue best-seller star
+  // true = shows the gold best-seller star
   star?: boolean
-}
-
-// One line in the order: a drink + its sugar level (if it has one) + notes + how many
-type OrderLine = {
-  lineId: string
-  id: number | string
-  name: string
-  price: number
-  sugar: string | null
-  notes: string | null
-  qty: number
-}
-
-type PlacedOrder = {
-  orderNumber: number
-  time: string
-  lines: OrderLine[]
-  total: number
 }
 
 // Change these to whatever sugar options you want
@@ -41,24 +28,68 @@ const DEFAULT_SUGAR = '100%'
 const peso = (n: number) =>
   '₱' + n.toLocaleString(undefined, { minimumFractionDigits: 2 })
 
-// The blue best-seller star
-function Star() {
+const pill = (active: boolean) =>
+  `rounded-full border-2 px-3 py-1 text-sm font-bold transition-colors ${
+    active
+      ? 'border-[#164734] bg-[#164734] text-[#FCFAF4]'
+      : 'border-[#B7C2A5] bg-[#FCFAF4] text-[#263B32] hover:border-[#164734]'
+  }`
+
+const MenuGrid = memo(function MenuGrid({
+  items,
+  onSelect,
+}: {
+  items: MenuItem[]
+  onSelect: (item: MenuItem) => void
+}) {
   return (
-    <span className="text-slate-900" title="Best seller" aria-label="Best seller">
-      ★
-    </span>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onSelect(item)}
+          className="emp-bd flex flex-col items-center rounded-3xl border-2 p-3 text-center text-[#263B32] shadow-sm transition-transform hover:-translate-y-0.5 hover:border-[#164734] hover:shadow-md"
+          style={{ backgroundColor: '#FCFAF4', borderColor: item.color || '#0F47AF' }}
+        >
+          <div className="mb-2 aspect-square w-20 overflow-hidden rounded-2xl sm:w-28" style={{ backgroundColor: '#F7F4EC' }}>
+            {item.photo ? (
+              <Image
+                src={item.photo}
+                alt={item.name}
+                width={112}
+                height={112}
+                unoptimized
+                loading="lazy"
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <div className="grid h-full w-full place-items-center text-xs opacity-60">No photo</div>
+            )}
+          </div>
+          <span className="text-sm font-semibold">
+            {item.name}
+            {item.star && <BestSellerStar />}
+          </span>
+          {item.description && <span className="mt-1 line-clamp-2 text-xs opacity-70">{item.description}</span>}
+          <span className="text-sm">{peso(item.price || 0)}</span>
+        </button>
+      ))}
+    </div>
   )
-}
+})
 
 export default function MenuList({
   items,
   options = [],
+  section,
 }: {
   items: MenuItem[]
   options?: string[] // quick requests like "Less ice" (managed in Admin > Settings)
+  section: 'drinks' | 'pastries'
 }) {
   // The order being built right now
-  const [order, setOrder] = useState<OrderLine[]>([])
+  const { order, setOrder, placedOrders, setPlacedOrders, payment, setPayment, customerName, setCustomerName } = useCustomerOrder()
 
   // The drink popup (null = closed)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
@@ -72,17 +103,22 @@ export default function MenuList({
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Orders placed during this visit (the real record is in Supabase)
-  const [placedOrders, setPlacedOrders] = useState<PlacedOrder[]>([])
+  useEffect(() => {
+    if (!selectedItem) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedItem(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedItem])
 
-  const openItem = (item: MenuItem) => {
-    console.log('Tapped:', item.name)
+  const openItem = useCallback((item: MenuItem) => {
     setSelectedItem(item)
     setSugar(DEFAULT_SUGAR)
     setQuantity(1)
     setPickedOptions([])
     setNote('')
-  }
+  }, [])
 
   const closeItem = () => setSelectedItem(null)
 
@@ -155,98 +191,93 @@ export default function MenuList({
 
   // "Yes, confirm" -> save to Supabase through actions.ts
   const placeOrder = async () => {
-    setSubmitting(true)
-    setSubmitError(null)
-
-    const result = await submitOrder(
-      order.map((l) => ({ id: l.id, sugar: l.sugar, notes: l.notes, qty: l.qty }))
-    )
-
-    setSubmitting(false)
-
-    if (!result.ok) {
-      console.error('Order failed:', result.error)
-      setSubmitError(result.error)
+    if (submitting || order.length === 0) return
+    if (!customerName.trim()) {
+      setSubmitError('Enter your name before placing the order.')
       return
     }
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const result = await submitOrder(
+        order.map((l) => ({ id: l.id, sugar: l.sugar, notes: l.notes, qty: l.qty })),
+        payment,
+        customerName
+      )
 
-    const newOrder: PlacedOrder = {
-      orderNumber: result.orderNumber,
-      time: new Date().toLocaleTimeString(),
-      lines: order,
-      total,
+      if (!result.ok) {
+        setSubmitError(result.error)
+        return
+      }
+
+      const newOrder: PlacedOrder = {
+        orderNumber: result.orderNumber,
+        time: new Date().toLocaleTimeString(),
+        lines: order,
+        total,
+      }
+      setPlacedOrders((prev) => [...prev, newOrder])
+      setOrder([])
+      setCustomerName('')
+      setShowConfirm(false)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Could not place the order.')
+    } finally {
+      setSubmitting(false)
     }
-    setPlacedOrders((prev) => [...prev, newOrder])
-    setOrder([])
-    setShowConfirm(false)
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="emp-bd rounded-2xl border border-dashed bg-white/70 py-12 text-center text-slate-400">
-        No items inside your menu database table yet.
-      </div>
-    )
   }
 
   const itemTotal = (selectedItem?.price || 0) * quantity
 
   return (
-    <div className="flex w-full flex-col items-start gap-6 lg:flex-row">
+    <div className="grid gap-7 lg:grid-cols-[1fr_360px]">
       {/* ---------- MENU ---------- */}
-      <section className="w-full lg:flex-1">
-        <h1 className="text-3xl font-bold text-[#164734] font-serif">
-  Menu
-</h1>
-        <p className="mb-4 text-xs text-slate-500">Tap a drink to start your order</p>
+      <section>
+        <h1 className="font-serif text-3xl font-bold text-[#164734]">
+          {section === 'drinks' ? 'Drinks' : 'Pastries'}
+        </h1>
+        <p className="mb-4 text-xs text-[#4C6B54]">
+          Tap a {section === 'drinks' ? 'drink' : 'pastry'} to start your order
+        </p>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => openItem(item)}
-              
-className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 text-center transition-all duration-200 hover:-translate-y-0.5 ${
-  selectedItem?.id === item.id
-    ? 'border-[#164734]'
-    : 'border-[#B7C2A5] hover:border-[#164734]'
-}`}
+        <nav className="mb-4 flex gap-2" aria-label="Menu sections">
+          <Link
+            href="/Customer"
+            aria-current={section === 'drinks' ? 'page' : undefined}
+            className={`emp-bd rounded-full border-2 px-4 py-1.5 text-sm font-bold ${
+              section === 'drinks' ? 'emp-solid' : 'bg-[#FCFAF4]'
+            }`}
+          >
+            Drinks
+          </Link>
+          <Link
+            href="/Customer/pastries"
+            aria-current={section === 'pastries' ? 'page' : undefined}
+            className={`emp-bd rounded-full border-2 px-4 py-1.5 text-sm font-bold ${
+              section === 'pastries' ? 'emp-solid' : 'bg-[#FCFAF4]'
+            }`}
+          >
+            Pastries
+          </Link>
+        </nav>
 
-            >
-              <div className="mb-2 aspect-square w-20 overflow-hidden rounded-2xl bg-slate-100 sm:w-24">
-                {item.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.photo}
-                    alt={item.name}
-                    loading="lazy"
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center text-xs text-slate-500">No photo</div>
-                )}
-              </div>
-              <span className="text-sm font-semibold">
-                {item.name}
-                {item.star && <Star />}
-              </span>
-              <span className="text-sm">{peso(item.price || 0)}</span>
-            </button>
-          ))}
-        </div>
+        {items.length === 0 ? (
+          <div className="emp-bd rounded-2xl border border-dashed bg-white/70 py-12 text-center opacity-70">
+            No {section} available yet. Add a menu item and select {section} in Admin.
+          </div>
+        ) : (
+          <MenuGrid items={items} onSelect={openItem} />
+        )}
       </section>
 
       {/* ---------- ORDER PANEL ---------- */}
-      <div className="flex flex-col gap-6 w-full lg:flex-1 lg:max-w-xl lg:sticky lg:top-6">
-        <aside className="flex min-h-[28rem] flex-col rounded-3xl border-2 border-[#B7C2A5] bg-[#FCFAF4] p-5 text-[#263B32] shadow-sm lg:sticky lg:top-6">
-          <h2 className="text-lg font-extrabold tracking-tight text-[#266B32]">
-  Your Order
-</h2>
+      <div className="space-y-6">
+        <aside className="emp-bd h-fit rounded-3xl border-2 bg-[#FCFAF4] p-5 text-[#263B32] shadow-sm lg:sticky lg:top-6">
+          <h2 className="text-lg font-bold text-[#164734]">Your Order</h2>
 
-          <div className="my-4 min-h-40 flex-1">
+          <div className="my-4 min-h-40">
           {order.length === 0 && (
-            <p className="pt-12 text-center text-sm text-slate-500">No items yet</p>
+            <p className="pt-12 text-center text-sm opacity-70">No items yet</p>
           )}
 
           {order.length > 0 && (
@@ -257,14 +288,14 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
                     <p className="font-semibold">
                       {line.name} <span className="font-normal">x{line.qty}</span>
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs opacity-70">
                       {line.sugar ? `Sugar ${line.sugar}` : ""}
                     </p>
-                    {line.notes && <p className="text-xs text-slate-500">Note: {line.notes}</p>}
+                    {line.notes && <p className="text-xs opacity-70">Note: {line.notes}</p>}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <span className="text-sm">{peso(line.price * line.qty)}</span>
-                    <div className="flex items-center rounded-full border-2 border-slate-900 text-sm">
+                    <div className="emp-bd flex items-center rounded-full border-2 text-sm">
                       <button
                         type="button"
                         aria-label={`Remove one ${line.name}`}
@@ -290,16 +321,47 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
           )}
           </div>
 
-          <div className="mb-3 flex items-center justify-between border-t-2 border-slate-900 pt-3 text-sm">
+          <div className="emp-bd mb-3 flex items-center justify-between border-t-2 pt-3 text-sm">
             <span className="font-serif font-bold text-base">Total</span>
-<span className="font-bold font-bold text-base">{peso(total)}</span>
+            <span className="font-semibold">{peso(total)}</span>
           </div>
+          <label className="mb-3 block text-sm font-bold">
+            Customer name <span aria-hidden="true">*</span>
+            <input
+              className="emp-input mt-1"
+              value={customerName}
+              onChange={(event) => setCustomerName(event.target.value)}
+              maxLength={80}
+              placeholder="Enter your name"
+              required
+              aria-required="true"
+            />
+            <span className="mt-1 block text-xs font-normal opacity-70">Required to place an order.</span>
+          </label>
+          <fieldset className="mb-3">
+            <legend className="mb-2 text-sm font-bold">Customer payment</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {(['cash', 'qr'] as const).map((method) => (
+                <label key={method} className={`cursor-pointer rounded-xl border-2 px-3 py-2 text-center text-sm font-bold ${payment === method ? 'emp-solid' : 'emp-bd'}`}>
+                  <input
+                    type="radio"
+                    name="customer-payment"
+                    value={method}
+                    checked={payment === method}
+                    onChange={() => setPayment(method)}
+                    className="sr-only"
+                  />
+                  {method === 'qr' ? 'QR payment' : 'Cash'}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <button
             type="button"
             onClick={() => setShowConfirm(true)}
-            disabled={order.length === 0}
-            className="w-full rounded-full bg-[#164734] py-3 text-lg font-bold text-white shadow-sm transition-all duration-200 hover:bg-[#263B32] hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#B7C2A5] disabled:text-[#263B32] disabled:opacity-70"
+            disabled={order.length === 0 || !customerName.trim()}
+            className="emp-solid w-full rounded-full py-3 text-lg font-bold shadow-sm transition-opacity duration-200 hover:opacity-90 hover:shadow-md disabled:cursor-not-allowed disabled:bg-[#B7C2A5] disabled:text-[#263B32] disabled:opacity-70"
           >
             Place Order
           </button>
@@ -307,20 +369,20 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
             type="button"
             onClick={() => setOrder([])}
             disabled={order.length === 0}
-            className="mt-2 w-full text-sm underline disabled:opacity-30"
+            className="mt-2 w-full text-sm underline opacity-70 disabled:opacity-30"
           >
             Clear
           </button>
         </aside>
 
         {placedOrders.length > 0 && (
-          <aside className="rounded-3xl border-2 border-slate-900 bg-white p-5 text-slate-900 shadow-sm">
-            <h2 className="mb-3 text-lg font-bold">Placed Orders</h2>
+          <aside className="emp-bd rounded-3xl border-2 bg-[#FCFAF4] p-5 text-[#263B32] shadow-sm">
+            <h2 className="mb-3 text-lg font-bold text-[#164734]">Placed Orders</h2>
             {placedOrders.map((o) => (
-              <div key={o.orderNumber} className="mb-3 pb-3 border-b border-neutral-300 text-sm">
+              <div key={o.orderNumber} className="emp-bd mb-3 border-b pb-3 text-sm">
                 <p className="font-bold">
                   Order #{o.orderNumber}{' '}
-                  <span className="font-mono font-normal text-neutral-500">{o.time}</span>
+                  <span className="font-mono font-normal opacity-70">{o.time}</span>
                 </p>
                 {o.lines.map((line) => (
                   <p key={line.lineId}>
@@ -338,45 +400,56 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
 
       {/* ---------- DRINK POPUP ---------- */}
       {selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-800 shadow-xl">
-            {selectedItem.photo ? (
-              <div className="mx-auto w-28 h-28 border-[3px] border-black rounded-2xl overflow-hidden mb-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closeItem}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedItem.name}
+            onClick={(event) => event.stopPropagation()}
+            className="emp-bd modal-scroll max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl border-2 bg-[#FCFAF4] p-6 text-[#263B32] shadow-xl"
+            style={{ borderColor: selectedItem.color || '#0F47AF' }}
+          >
+            <div
+              className="mx-auto mb-4 grid h-28 w-28 place-items-center overflow-hidden rounded-2xl border-[3px]"
+              style={{ borderColor: selectedItem.color || '#0F47AF', backgroundColor: '#F7F4EC' }}
+            >
+              {selectedItem.photo ? (
+                <Image
                   src={selectedItem.photo}
                   alt={selectedItem.name}
-                  className="w-full h-full object-contain"
+                  width={112}
+                  height={112}
+                  unoptimized
+                  className="h-full w-full object-contain"
                 />
-              </div>
-            ) : (
-              <div className="mx-auto w-28 h-28 border-[3px] border-black rounded-2xl flex items-center justify-center text-xs font-bold text-neutral-400 mb-4">
-                NO IMAGE
-              </div>
-            )}
+              ) : (
+                <span className="text-xs font-bold opacity-60">NO IMAGE</span>
+              )}
+            </div>
 
             <h2 className="font-black text-xl">
-              {selectedItem.name} {selectedItem.star && <Star />}
+              {selectedItem.name} {selectedItem.star && <BestSellerStar />}
             </h2>
-            <p className="text-xs text-neutral-500 mb-4">
+            {selectedItem.description && <p className="mt-1 text-sm text-neutral-500">{selectedItem.description}</p>}
+            <p className="mb-4 text-xs opacity-70">
               Base price {peso(selectedItem.price || 0)}
             </p>
 
             {/* Sugar levels only appear if this drink has sugar turned on */}
             {selectedItem.sugar?.on && (
               <>
-                <p className="text-xs font-bold uppercase mb-2">Sugar level</p>
-                <div className="flex gap-2 mb-5 flex-wrap">
+                <p className="mb-2 text-xs font-bold uppercase">Sugar level</p>
+                <div className="mb-5 flex flex-wrap gap-2">
                   {SUGAR_LEVELS.map((level) => (
                     <button
                       key={level}
+                      type="button"
+                      aria-pressed={sugar === level}
                       onClick={() => setSugar(level)}
-                      className={
-                        'border-2 rounded-full px-3 py-1 text-sm font-bold transition-colors ' +
-(sugar === level
-  ? 'border-[#164734] bg-[#164734] text-white'
-  : 'border-[#B7C2A5] bg-[#FCFAF4] text-[#263B32] hover:border-[#164734]')
-                      }
+                      className={pill(sugar === level)}
                     >
                       {level}
                     </button>
@@ -386,20 +459,17 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
             )}
 
             {/* Quick requests like "Less ice" + a free note */}
-            {options.length > 0 && (
+            {section === 'drinks' && options.length > 0 && (
               <>
-                <p className="text-xs font-bold uppercase mb-2">Special requests</p>
-                <div className="flex gap-2 mb-4 flex-wrap">
+                <p className="mb-2 text-xs font-bold uppercase">Special requests</p>
+                <div className="mb-4 flex flex-wrap gap-2">
                   {options.map((option) => (
                     <button
                       key={option}
+                      type="button"
+                      aria-pressed={pickedOptions.includes(option)}
                       onClick={() => toggleOption(option)}
-                      className={
-  'border-2 rounded-full px-3 py-1 text-sm font-bold transition-colors ' +
-  (pickedOptions.includes(option)
-    ? 'bg-[#164734] border-[#164734] text-[#FCFAF4]'
-    : 'bg-[#FCFAF4] border-[#B7C2A5] text-[#263B32] hover:border-[#164734]')
-                      }
+                      className={pill(pickedOptions.includes(option))}
                     >
                       {option}
                     </button>
@@ -408,47 +478,53 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
               </>
             )}
 
-            <p className="text-xs font-bold uppercase mb-2">Note</p>
+            <p className="mb-2 text-xs font-bold uppercase">Note</p>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               maxLength={120}
               placeholder="Anything else? e.g. no straw"
-              className="w-full border-2 border-[#B7C2A5] focus:outline-none focus:border-[#164734] rounded-full px-4 py-2 text-sm mb-5 text-black bg-white"
+              className="mb-5 w-full rounded-full border-2 border-[#B7C2A5] bg-white px-4 py-2 text-sm text-black focus:border-[#164734] focus:outline-none"
             />
 
-            <div className="flex justify-between items-center mb-5">
+            <div className="mb-5 flex items-center justify-between">
               <div>
                 <p className="font-bold">Quantity</p>
-                <p className="text-xs text-neutral-500">How many of this drink?</p>
+                <p className="text-xs opacity-70">How many of this item?</p>
               </div>
-              <div className="flex items-center gap-3 border-2 border-[#B7C2A5] rounded-full px-3 py-1">
+              <div className="emp-bd flex items-center gap-3 rounded-full border-2 px-3 py-1">
                 <button
+                  type="button"
+                  aria-label="Decrease quantity"
                   onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  className="font-bold text-lg leading-none"
+                  className="text-lg font-bold leading-none"
                 >
                   −
                 </button>
                 <span className="font-mono w-4 text-center">{quantity}</span>
                 <button
+                  type="button"
+                  aria-label="Increase quantity"
                   onClick={() => setQuantity((q) => q + 1)}
-                  className="font-bold text-lg leading-none"
+                  className="text-lg font-bold leading-none"
                 >
                   +
                 </button>
               </div>
             </div>
 
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <button
+                type="button"
                 onClick={closeItem}
-                className="border-2 border-[#B7C2A5] text-[#164734] rounded-full px-5 py-2 hover:bg-[#F0F4EA] transition-colors"
+                className="emp-bd rounded-full border-2 px-5 py-2 text-[#164734] transition-colors hover:bg-[#F0F4EA]"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={addToOrder}
-                className="bg-[#164734] text-white border-2 border-[#164734] rounded-full px-5 py-2 font-bold hover:bg-[#1F5C43] transition-colors"
+                className="emp-solid rounded-full border-2 border-[#0e4bbe] px-5 py-2 font-bold transition-colors hover:opacity-90"
               >
                 Add - {peso(itemTotal)}
               </button>
@@ -459,10 +535,15 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
 
       {/* ---------- ARE-YOU-SURE POPUP ---------- */}
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white border-[3px] border-black rounded-3xl p-6 max-w-sm w-full text-black">
-            <h2 className="font-black text-lg mb-2">Place this order?</h2>
-            <p className="text-sm mb-3">Are you sure you want to confirm this order?</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-order-title"
+            className="emp-bd w-full max-w-sm rounded-3xl border-2 bg-[#FCFAF4] p-6 text-[#263B32] shadow-xl"
+          >
+            <h2 id="confirm-order-title" className="mb-2 text-lg font-black text-[#164734]">Place this order?</h2>
+            <p className="mb-3 text-sm">Are you sure you want to confirm this order?</p>
             {order.map((line) => (
               <p key={line.lineId} className="text-sm">
                 {line.qty} × {line.name}
@@ -470,27 +551,30 @@ className={`flex flex-col items-center rounded-3xl border-2 bg-[#FCFAF4] p-3 tex
                 {line.notes ? ` – ${line.notes}` : ''}
               </p>
             ))}
-            <p className="font-mono font-bold mt-2 mb-4">Total: {peso(total)}</p>
+            <p className="mb-4 mt-2 font-mono font-bold">Total: {peso(total)}</p>
+            <p className="mb-4 text-sm font-bold">Payment: {payment === 'qr' ? 'QR payment' : 'Cash'}</p>
             {submitError && (
-              <p className="text-sm text-red-700 bg-red-50 border border-red-200 p-2 mb-3">
+              <p className="mb-3 border border-red-200 bg-red-50 p-2 text-sm text-red-700">
                 Could not save the order: {submitError}
               </p>
             )}
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={placeOrder}
                 disabled={submitting}
-                className="bg-black text-white border-2 border-black rounded-full px-5 py-2 font-bold disabled:opacity-50"
+                className="emp-solid rounded-full border-2 border-[#0e4bbe] px-5 py-2 font-bold disabled:opacity-50"
               >
                 {submitting ? 'Saving…' : 'Yes, confirm'}
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setShowConfirm(false)
                   setSubmitError(null)
                 }}
                 disabled={submitting}
-                className="border-2 border-black rounded-full px-5 py-2 disabled:opacity-50"
+                className="emp-bd rounded-full border-2 px-5 py-2 disabled:opacity-50"
               >
                 Cancel
               </button>

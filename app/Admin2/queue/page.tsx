@@ -32,10 +32,11 @@ export default function QueuePage() {
             <header className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold">#{order.number}</h2>
+                <span className="text-sm font-semibold">{order.customerName || "Walk-in"}</span>
                 <span className="text-xs">{timeAgo(order.createdAt, now)}</span>
                 {idx === 0 && <span className="emp-bd rounded-full border-2 px-3 py-0.5 text-xs">Next up</span>}
               </div>
-              <span className="text-lg font-bold">{peso(order.total)}</span>
+              <span className="text-right"><span className="block text-lg font-bold">{peso(order.total)}</span><span className="text-xs uppercase">{order.payment === "qr" ? "QR" : "Cash"}</span></span>
             </header>
 
             <ul className="mt-3 space-y-2">

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import type { CartItem, QueueOrder } from "../_lib/menu";
+import type { CartItem, PaymentMethod, QueueOrder } from "../_lib/menu";
 import { getQueue, placeOrder as savePlacedOrder, setOrderStatus } from "../_lib/actions";
 
 type Ctx = {
@@ -10,6 +10,10 @@ type Ctx = {
   queue: QueueOrder[];
   queueError: string | null;
   placing: boolean;
+  payment: PaymentMethod;
+  setPayment: (payment: PaymentMethod) => void;
+  customerName: string;
+  setCustomerName: (name: string) => void;
   total: number;
   addToCart: (item: CartItem) => void;
   changeQty: (key: string, delta: number) => void;
@@ -19,7 +23,7 @@ type Ctx = {
 };
 
 const OrderContext = createContext<Ctx | null>(null);
-const POLL_MS = 2500;
+const POLL_MS = 5000;
 
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -28,7 +32,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
+  const [payment, setPayment] = useState<PaymentMethod>("cash");
+  const [customerName, setCustomerName] = useState("");
   const refreshing = useRef(false);
+  const queueSignature = useRef("");
 
   const refresh = useCallback(async () => {
     if (refreshing.current || document.visibilityState !== "visible") return;
@@ -36,7 +43,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await getQueue();
       if (res.ok) {
-        setQueue(res.data);
+        const nextSignature = JSON.stringify(res.data);
+        if (nextSignature !== queueSignature.current) {
+          queueSignature.current = nextSignature;
+          setQueue(res.data);
+        }
         setQueueError(null);
       } else {
         setQueueError(res.error);
@@ -82,7 +93,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     if (!cart.length || placing) return;
     setPlacing(true);
     try {
-      const res = await savePlacedOrder(cart.map((c) => ({ id: c.id, sugar: c.sugar, qty: c.qty, notes: c.notes })));
+      const res = await savePlacedOrder(cart.map((c) => ({ id: c.id, sugar: c.sugar, qty: c.qty, notes: c.notes })), payment, customerName);
       if (!res.ok) {
         alert(`Couldn’t place the order: ${res.error}`);
       } else {
@@ -94,10 +105,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setPlacing(false);
     }
-  }, [cart, onQueue, placing, refresh]);
+  }, [cart, customerName, onQueue, payment, placing, refresh]);
 
   const finish = useCallback(
     async (id: number, status: "done" | "cancelled") => {
+      queueSignature.current = "";
       setQueue((q) => q.filter((o) => o.id !== id)); // remove right away
       try {
         const res = await setOrderStatus(id, status);
@@ -109,24 +121,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     [refresh]
   );
 
-  return (
-    <OrderContext.Provider
-      value={{
-        cart,
-        queue,
-        queueError,
-        placing,
-        total,
-        addToCart,
-        changeQty,
-        placeOrder,
-        completeOrder: (id) => finish(id, "done"),
-        cancelOrder: (id) => finish(id, "cancelled"),
-      }}
-    >
-      {children}
-    </OrderContext.Provider>
+  const completeOrder = useCallback((id: number) => finish(id, "done"), [finish]);
+  const cancelOrder = useCallback((id: number) => finish(id, "cancelled"), [finish]);
+  const contextValue = useMemo(
+    () => ({
+      cart,
+      queue,
+      queueError,
+      placing,
+      payment,
+      setPayment,
+      customerName,
+      setCustomerName,
+      total,
+      addToCart,
+      changeQty,
+      placeOrder,
+      completeOrder,
+      cancelOrder,
+    }),
+    [cart, queue, queueError, placing, payment, customerName, total, addToCart, changeQty, placeOrder, completeOrder, cancelOrder]
   );
+
+  return <OrderContext.Provider value={contextValue}>{children}</OrderContext.Provider>;
 }
 
 export function useOrders() {

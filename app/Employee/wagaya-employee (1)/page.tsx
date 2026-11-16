@@ -1,18 +1,61 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Image from "next/image";
+import { memo, useCallback, useEffect, useState } from "react";
+import BestSellerStar from "../../_components/BestSellerStar";
+import { getCustomerExtras } from "../../Customer/actions";
 import { getMenu, getOrderOptions } from "./_lib/actions";
 import DrinkModal from "./_components/DrinkModal";
 import { useOrders } from "./_context/OrderContext";
 import { peso, type MenuRow } from "./_lib/menu";
 
+const MenuGrid = memo(function MenuGrid({
+  menu,
+  starIds,
+  onSelect,
+}: {
+  menu: MenuRow[];
+  starIds: string[];
+  onSelect: (drink: MenuRow) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+      {menu.map((drink) => (
+        <button
+          key={drink.id}
+          type="button"
+          onClick={() => onSelect(drink)}
+          className="emp-bd flex flex-col items-center rounded-3xl border-2 p-3 text-center transition-transform hover:-translate-y-0.5"
+          style={{ backgroundColor: drink.color || "#FCFAF4" }}
+        >
+          <div className="emp-photo mb-2 aspect-square w-20 overflow-hidden rounded-2xl sm:w-24">
+            {drink.photo ? (
+              <Image src={drink.photo} alt={drink.name} width={112} height={112} unoptimized loading="lazy" className="h-full w-full object-contain" />
+            ) : (
+              <div className="grid h-full w-full place-items-center text-xs opacity-60">No photo</div>
+            )}
+          </div>
+          <span className="text-sm font-semibold">
+            {drink.name}
+            {starIds.includes(String(drink.id)) && <BestSellerStar />}
+          </span>
+          {drink.description && <span className="mt-1 line-clamp-2 text-xs opacity-70">{drink.description}</span>}
+          <span className="text-sm">{peso(drink.price)}</span>
+        </button>
+      ))}
+    </div>
+  );
+});
+
 export default function OrdersPage() {
-  const { cart, total, addToCart, changeQty, placeOrder } = useOrders();
+  const { cart, total, addToCart, changeQty, placeOrder, payment, setPayment, customerName, setCustomerName } = useOrders();
   const [menu, setMenu] = useState<MenuRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<MenuRow | null>(null);
   const [options, setOptions] = useState<string[]>([]);
+  const [starIds, setStarIds] = useState<string[]>([]);
+  const openDrink = useCallback((drink: MenuRow) => setSelected(drink), []);
 
   useEffect(() => {
     (async () => {
@@ -28,6 +71,21 @@ export default function OrdersPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getCustomerExtras()
+      .then(({ starIds: loadedStarIds }) => {
+        if (active) setStarIds(loadedStarIds);
+      })
+      .catch((cause: unknown) => {
+        console.error("Could not load best-seller stars.", cause);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
       {/* MENU */}
@@ -39,27 +97,7 @@ export default function OrdersPage() {
         {error && <p className="text-sm text-red-500">Couldn’t load the menu: {error}</p>}
         {!loading && !error && menu.length === 0 && <p className="text-sm opacity-70">No drinks on the menu yet.</p>}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-          {menu.map((drink) => (
-            <button
-              key={drink.id}
-              type="button"
-              onClick={() => setSelected(drink)}
-              className="emp-bd flex flex-col items-center rounded-3xl border-2 p-3 text-center transition-transform hover:-translate-y-0.5"
-            >
-              <div className="emp-photo mb-2 aspect-square w-20 overflow-hidden rounded-2xl sm:w-24">
-                {drink.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={drink.photo} alt={drink.name} loading="lazy" className="h-full w-full object-contain" />
-                ) : (
-                  <div className="grid h-full w-full place-items-center text-xs opacity-60">No photo</div>
-                )}
-              </div>
-              <span className="text-sm font-semibold">{drink.name}</span>
-              <span className="text-sm">{peso(drink.price)}</span>
-            </button>
-          ))}
-        </div>
+        <MenuGrid menu={menu} starIds={starIds} onSelect={openDrink} />
       </section>
 
       {/* YOUR ORDER */}
@@ -103,6 +141,28 @@ export default function OrdersPage() {
           <span>Total</span>
           <span className="font-semibold">{peso(total)}</span>
         </div>
+        <label className="mb-3 block text-sm font-bold">
+          Customer name
+          <input className="emp-input mt-1" value={customerName} onChange={(event) => setCustomerName(event.target.value)} maxLength={80} placeholder="Enter customer name" />
+        </label>
+        <fieldset className="mb-3">
+          <legend className="mb-2 text-sm font-bold">Customer payment</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {["cash", "qr"].map((method) => (
+              <label key={method} className={`cursor-pointer rounded-xl border-2 px-3 py-2 text-center text-sm font-bold ${payment === method ? "emp-solid" : "emp-bd"}`}>
+                <input
+                  type="radio"
+                  name="legacy-employee-payment"
+                  value={method}
+                  checked={payment === method}
+                  onChange={() => setPayment(method as "cash" | "qr")}
+                  className="sr-only"
+                />
+                {method === "qr" ? "QR payment" : "Cash"}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <button
           type="button"
           onClick={placeOrder}

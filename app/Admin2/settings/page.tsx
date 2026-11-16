@@ -1,14 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import BestSellerStar from "../../_components/BestSellerStar";
 import { useRouter } from "next/navigation";
 import Modal from "../_components/Modal";
 import {
+  getAccessCodesRequired,
   getOrderOptions,
   getSetting,
   getStarConfig,
   hasCode,
   saveCode,
+  setAccessCodesRequired,
   sendCurrentIngredients,
   sendPastSales,
   setSetting,
@@ -38,6 +42,7 @@ export default function SettingsPage() {
 
   // codes
   const [codeSet, setCodeSet] = useState<Record<Role, boolean>>({ admin: false, employee: false });
+  const [codesRequired, setCodesRequired] = useState(true);
   const [codeRole, setCodeRole] = useState<Role | null>(null);
   const [newCode, setNewCode] = useState("");
   const [codeErr, setCodeErr] = useState<string | null>(null);
@@ -65,13 +70,14 @@ export default function SettingsPage() {
       setKiosk(localStorage.getItem("wagaya-kiosk") === "on");
     } catch {}
     (async () => {
-      const [c, s, timeout, reset, a, e] = await Promise.all([
+      const [c, s, timeout, reset, a, e, required] = await Promise.all([
         getSetting("cafe"),
         getSetting("sheets"),
         getSetting("queueTimeout"),
         getSetting("salesReset"),
         hasCode("admin"),
         hasCode("employee"),
+        getAccessCodesRequired(),
       ]);
       if (c.ok && c.data) setCafe({ ...DEFAULT_CAFE, ...(c.data as Partial<Cafe>) });
       if (s.ok && s.data) setSheets({ url: "", code: "", auto: false, ...(s.data as Partial<SheetsCfg>) });
@@ -90,6 +96,7 @@ export default function SettingsPage() {
         }
       }
       setCodeSet({ admin: a, employee: e });
+      setCodesRequired(required);
     })();
   }, []);
 
@@ -168,6 +175,12 @@ export default function SettingsPage() {
     setCodeRole(null);
   };
 
+  const toggleCodesRequired = async (required: boolean) => {
+    setCodesRequired(required);
+    const res = await setAccessCodesRequired(required);
+    if (!res.ok) setCodesRequired(!required);
+  };
+
   /* ---- google sheets ---- */
   const saveSheets = async () => {
     const res = await setSetting("sheets", { url: sheets.url.trim(), code: sheets.code.trim(), auto: sheets.auto });
@@ -213,8 +226,7 @@ export default function SettingsPage() {
         <div className="mt-4 flex items-center gap-3">
           <div className="emp-bd grid h-14 w-14 place-items-center overflow-hidden rounded-full border-2 text-xl font-black">
             {cafe.logo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={cafe.logo} alt="" className="h-full w-full object-contain" />
+              <Image src={cafe.logo} alt="" width={56} height={56} unoptimized className="h-full w-full object-contain" />
             ) : (
               (cafe.name || "W").charAt(0).toUpperCase()
             )}
@@ -340,10 +352,10 @@ export default function SettingsPage() {
       {/* BEST SELLER STAR */}
       <div className={box}>
         <h2 className="font-bold">
-          BEST-SELLER STAR <span className="emp-accent">★</span>
+          BEST-SELLER STAR <BestSellerStar />
         </h2>
         <p className="mb-3 text-xs opacity-70">
-          Customers see a blue star on the most ordered drink. You can also star any drink by hand (edit the item, or use the Sales leaderboard).
+          Customers see a gold star on the most ordered drink. You can also star any drink by hand (edit the item, or use the Sales leaderboard).
         </p>
         <label className="flex cursor-pointer items-center gap-3 text-sm">
           <input type="checkbox" className="h-5 w-5" checked={starAuto} onChange={(e) => toggleStarAuto(e.target.checked)} />
@@ -354,7 +366,11 @@ export default function SettingsPage() {
       {/* ACCESS CODES */}
       <div className={box}>
         <h2 className="font-bold">ACCESS CODES</h2>
-        <p className="mb-4 text-xs opacity-70">The admin code locks these admin screens. Leave a code off if you don’t want one.</p>
+        <p className="mb-4 text-xs opacity-70">Only the admin can change whether codes are required for Admin and Employee screens.</p>
+        <label className="mb-4 flex cursor-pointer items-center gap-3 text-sm">
+          <input type="checkbox" className="h-5 w-5" checked={codesRequired} onChange={(e) => toggleCodesRequired(e.target.checked)} />
+          Require access codes
+        </label>
         {(["admin", "employee"] as Role[]).map((role) => (
           <div key={role} className="mb-3 flex items-center justify-between gap-3">
             <div>
@@ -372,7 +388,7 @@ export default function SettingsPage() {
       <div className={box}>
         <h2 className="font-bold">GOOGLE SHEETS</h2>
         <p className="mb-3 text-xs opacity-70">
-          Finished orders are sent to the Sales tab automatically. Ingredient changes update matching rows in the Ingredient Stocks tab using
+          Finished orders, including their Cash or QR payment method, are sent to the Sales tab automatically. Ingredient changes update matching rows in the Ingredient Stocks tab using
           the ingredient ID, so edits do not create duplicates. Set it up with the updated Apps Script in
           <span className="font-mono"> app/Admin2/_docs/GoogleSheets-AppsScript.gs</span>.
         </p>

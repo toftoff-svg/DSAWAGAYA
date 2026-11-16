@@ -1,6 +1,7 @@
 "use server";
 
 // All database work. Uses the SAME Supabase connection as your customer side.
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/utils/supabase/server";
 import {
   DEFAULT_CAFE,
@@ -17,6 +18,8 @@ import {
   type SaleLine,
   type SalesSummary,
   type SheetsCfg,
+  type PaymentMethod,
+  type RestockHistoryEntry,
 } from "./menu";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -69,6 +72,24 @@ export async function getSetting(key: string): Promise<Result<unknown>> {
 export async function setSetting(key: string, value: unknown): Promise<Result<null>> {
   try {
     await writeSetting(await createClient(), key, value);
+    return ok(null);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function getAccessCodesRequired(): Promise<boolean> {
+  try {
+    const value = await readSetting<boolean>(await createClient(), "accessCodesRequired");
+    return value !== false;
+  } catch {
+    return true;
+  }
+}
+
+export async function setAccessCodesRequired(required: boolean): Promise<Result<null>> {
+  try {
+    await writeSetting(await createClient(), "accessCodesRequired", required);
     return ok(null);
   } catch (e) {
     return fail(e);
@@ -128,7 +149,10 @@ export async function getMenu(): Promise<Result<MenuRow[]>> {
     const rows: MenuRow[] = (data ?? []).map((m: Row) => ({
       id: Number(m.id),
       name: String(m.name ?? ""),
+      description: String(m.description ?? ""),
+      color: /^#[0-9a-f]{6}$/i.test(String(m.color ?? "")) ? String(m.color) : "#FCFAF4",
       price: Number(m.price) || 0,
+      category: String(m.category ?? "drinks").toLowerCase() === "pastries" ? "pastries" : "drinks",
       photo: (m.photo as string | null) ?? null,
       recipe: Array.isArray(m.recipe) ? (m.recipe as RecipeLine[]) : [],
       addons: Array.isArray(m.addons)
@@ -146,7 +170,10 @@ export async function getMenu(): Promise<Result<MenuRow[]>> {
 type MenuInput = {
   id?: number;
   name: string;
+  description: string;
+  color: string;
   price: number;
+  category: "drinks" | "pastries";
   photo: string | null;
   recipe: RecipeLine[];
   addons: AddonDef[];
@@ -158,7 +185,10 @@ export async function saveMenuItem(input: MenuInput): Promise<Result<{ id: numbe
     const supabase = await createClient();
     const fields = {
       name: input.name.trim(),
+      description: input.description.trim(),
+      color: input.color,
       price: input.price,
+      category: input.category,
       photo: input.photo,
       recipe: input.recipe,
       addons: input.addons,
@@ -222,6 +252,20 @@ async function ingCols(supabase: DB): Promise<IngCols> {
   return colsFrom(data?.[0] as Row | undefined);
 }
 
+function parseRestockHistory(value: unknown): RestockHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): RestockHistoryEntry[] => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const row = entry as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id : "";
+    const amount = Number(row.amount);
+    const addedAt = typeof row.addedAt === "string" ? row.addedAt : "";
+    return id && Number.isFinite(amount) && amount > 0 && Number.isFinite(Date.parse(addedAt))
+      ? [{ id, amount, addedAt }]
+      : [];
+  });
+}
+
 export async function getIngredients(): Promise<Result<Ingredient[]>> {
   try {
     const supabase = await createClient();
@@ -233,6 +277,8 @@ export async function getIngredients(): Promise<Result<Ingredient[]>> {
       name: String(r[c.name] ?? ""),
       category: String(r[c.category] ?? ""),
       stock: Number(r[c.stock]) || 0,
+      lastRestockedAt: r.last_restocked_at == null ? null : String(r.last_restocked_at),
+      stockHistory: parseRestockHistory(r.stock_history),
       unit: String(r[c.unit] ?? ""),
       low: Number(r[c.low]) || 0,
       cost: Number(r[c.cost]) || 0,
@@ -249,11 +295,14 @@ export async function saveIngredient(input: Omit<Ingredient, "id">): Promise<Res
     const supabase = await createClient();
     const c = await ingCols(supabase);
     const id = Date.now();
+    const addedAt = input.stock > 0 ? new Date().toISOString() : null;
     const { error } = await supabase.from("ings").insert({
       id,
       [c.name]: input.name.trim(),
       [c.category]: input.category.trim(),
       [c.stock]: input.stock,
+      last_restocked_at: addedAt,
+      stock_history: addedAt ? [{ id: randomUUID(), amount: input.stock, addedAt }] : [],
       [c.unit]: input.unit.trim(),
       [c.low]: input.low,
       [c.cost]: input.cost,
@@ -275,7 +324,22 @@ export async function updateIngredient(
     const c = await ingCols(supabase);
     const row: Row = {};
     if (patch.category !== undefined) row[c.category] = patch.category;
-    if (patch.stock !== undefined) row[c.stock] = patch.stock;
+    if (patch.stock !== undefined) {
+      if (!Number.isFinite(patch.stock) || patch.stock < 0) return fail("Stock must be a non-negative number.");
+      const { data: current, error: currentError } = await supabase.from("ings").select("*").eq("id", id).maybeSingle();
+      if (currentError || !current) return fail(currentError?.message ?? "Ingredient not found.");
+      const currentRow = current as Row;
+      const currentStock = Number(currentRow[c.stock]) || 0;
+      row[c.stock] = patch.stock;
+      if (patch.stock > currentStock) {
+        const addedAt = new Date().toISOString();
+        row.stock_history = [
+          ...parseRestockHistory(currentRow.stock_history),
+          { id: randomUUID(), amount: patch.stock - currentStock, addedAt },
+        ];
+        row.last_restocked_at = addedAt;
+      }
+    }
     if (patch.cost !== undefined) row[c.cost] = patch.cost;
     if (patch.low !== undefined) row[c.low] = patch.low;
     if (patch.unit !== undefined) row[c.unit] = patch.unit;
@@ -303,11 +367,117 @@ export async function deleteIngredient(id: number | string): Promise<Result<null
   }
 }
 
+export async function restockIngredient(
+  ingredientId: number | string,
+  amount: number,
+  addedAt: string
+): Promise<Result<null>> {
+  try {
+    if (!Number.isFinite(amount) || amount <= 0) return fail("Stock amount must be greater than zero.");
+    const restockedAt = new Date(addedAt);
+    if (!Number.isFinite(restockedAt.getTime())) return fail("Choose a valid restock date.");
+    const supabase = await createClient();
+    const c = await ingCols(supabase);
+    const { data: ingredient, error: ingredientError } = await supabase
+      .from("ings")
+      .select("*")
+      .eq("id", ingredientId)
+      .maybeSingle();
+    if (ingredientError || !ingredient) return fail(ingredientError?.message ?? "Ingredient not found.");
+    const ingredientRow = ingredient as Row;
+    const recordedAt = restockedAt.toISOString();
+    const { error } = await supabase
+      .from("ings")
+      .update({
+        [c.stock]: (Number(ingredientRow[c.stock]) || 0) + amount,
+        last_restocked_at: recordedAt,
+        stock_history: [
+          ...parseRestockHistory(ingredientRow.stock_history),
+          { id: randomUUID(), amount, addedAt: recordedAt },
+        ],
+      })
+      .eq("id", ingredientId);
+    if (error) return fail(error.message);
+    await syncIngredientToSheets(supabase, ingredientId);
+    return ok(null);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteRestockHistoryEntries(
+  entries: Array<{ ingredientId: number | string; entryId: string }>
+): Promise<Result<number>> {
+  try {
+    const grouped = new Map<string, { ingredientId: number | string; entryIds: Set<string> }>();
+    for (const entry of entries) {
+      if (!entry.entryId) continue;
+      const key = String(entry.ingredientId);
+      const group = grouped.get(key) ?? { ingredientId: entry.ingredientId, entryIds: new Set<string>() };
+      group.entryIds.add(entry.entryId);
+      grouped.set(key, group);
+    }
+    if (grouped.size === 0) return ok(0);
+
+    const supabase = await createClient();
+    let deleted = 0;
+    const errors: string[] = [];
+    for (const { ingredientId, entryIds } of grouped.values()) {
+      const { data: ingredient, error: readError } = await supabase
+        .from("ings")
+        .select("*")
+        .eq("id", ingredientId)
+        .maybeSingle();
+      if (readError || !ingredient) {
+        errors.push(`${ingredientId}: ${readError?.message ?? "ingredient not found"}`);
+        continue;
+      }
+
+      const current = ingredient as Row;
+      const history = parseRestockHistory(current.stock_history);
+      const remaining = history.filter((entry) => !entryIds.has(entry.id));
+      const removed = history.length - remaining.length;
+      if (removed === 0) continue;
+      const latest = remaining.reduce<RestockHistoryEntry | null>(
+        (latestEntry, entry) =>
+          latestEntry === null || Date.parse(entry.addedAt) > Date.parse(latestEntry.addedAt)
+            ? entry
+            : latestEntry,
+        null
+      );
+      const { data: updated, error: updateError } = await supabase
+        .from("ings")
+        .update({
+          stock_history: remaining,
+          last_restocked_at: latest?.addedAt ?? null,
+        })
+        .eq("id", ingredientId)
+        .select("id")
+        .maybeSingle();
+      if (updateError || !updated) {
+        errors.push(`${ingredientId}: ${updateError?.message ?? "update was not permitted"}`);
+        continue;
+      }
+      deleted += removed;
+      await syncIngredientToSheets(supabase, ingredientId);
+    }
+
+    if (errors.length > 0) {
+      return fail(
+        `Deleted ${deleted} history record${deleted === 1 ? "" : "s"}; some records could not be deleted: ${errors.join("; ")}`
+      );
+    }
+    return ok(deleted);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Orders / queue                                                      */
 /* ------------------------------------------------------------------ */
 
-type OrderRow = { id: number; num: number; placed: string; total: number; items: unknown; use?: unknown };
+type OrderRow = { id: number; num: number; placed: string; total: number; items: unknown; use?: unknown; payment?: string | null; customer_name?: string | null };
 type OrderItem = { q?: number; name?: string; sugar?: string | null; notes?: string | null };
 
 export async function getQueue(): Promise<Result<QueueOrder[]>> {
@@ -316,7 +486,7 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
     const [ordersRes, menuRes] = await Promise.all([
       supabase
         .from("orders")
-        .select("id, num, placed, total, items")
+        .select("id, num, placed, total, items, payment, customer_name")
         .eq("status", "waiting")
         .order("placed", { ascending: true }),
       supabase.from("menu").select("name, price"),
@@ -332,6 +502,8 @@ export async function getQueue(): Promise<Result<QueueOrder[]>> {
       number: Number(r.num),
       createdAt: Date.parse(r.placed),
       total: Number(r.total) || 0,
+      payment: r.payment === "qr" ? "qr" : "cash",
+      customerName: String(r.customer_name ?? "Walk-in"),
       items: (Array.isArray(r.items) ? (r.items as OrderItem[]) : []).map(
         (x, i): CartItem => ({
           key: `${r.id}-${i}`,
@@ -359,7 +531,7 @@ export async function setOrderStatus(id: number, status: "done" | "cancelled"): 
       .update({ status })
       .eq("id", id)
       .eq("status", "waiting") // only act once
-      .select("id, num, placed, total, items, use");
+      .select("id, num, placed, total, items, use, payment, customer_name");
     if (error) return fail(error.message);
 
     const order = data?.[0] as OrderRow | undefined;
@@ -446,7 +618,7 @@ export async function deductOrderStock(orderId: number): Promise<Result<null>> {
 
 type LineInput = { id: number | string; sugar: string | null; qty: number; notes?: string | null };
 
-export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumber: number }>> {
+export async function placeOrder(lines: LineInput[], payment: PaymentMethod = "cash", customerName = ""): Promise<Result<{ orderNumber: number }>> {
   try {
     if (!lines || lines.length === 0) return fail("The order is empty.");
     const supabase = await createClient();
@@ -492,16 +664,21 @@ export async function placeOrder(lines: LineInput[]): Promise<Result<{ orderNumb
     if (lastError) return fail(lastError.message);
     const num = (Number(last?.[0]?.num) || 0) + 1;
 
-    const { error } = await supabase.from("orders").insert({
-      id: Date.now() * 100 + Math.floor(Math.random() * 100),
-      num,
-      placed: new Date().toISOString(),
-      total,
-      items,
-      use,
-      status: "waiting",
-      deducted: true,
-    });
+    const { error } = await supabase
+      .from("orders")
+      .insert({
+        id: Date.now() * 100 + Math.floor(Math.random() * 100),
+        num,
+        placed: new Date().toISOString(),
+        total,
+        items,
+        use,
+        status: "waiting",
+        deducted: true,
+        payment,
+        customer_name: customerName.trim().slice(0, 80),
+      })
+      .select("id, num, placed, total, items, payment, customer_name");
     if (error) return fail(error.message);
 
     // take the ingredients out of stock now
@@ -563,11 +740,13 @@ function linesOf(o: OrderRow, p: Pricing): SaleLine[] {
       price,
       cost,
       profit: price - cost,
+      payment: o.payment === "qr" ? "qr" : "cash",
+      customerName: String(o.customer_name ?? "Walk-in"),
     };
   });
 }
 
-export type SalesRange = { from?: string; to?: string };
+export type SalesRange = { from?: string; to?: string; payment?: PaymentMethod };
 type SalesReset = { mode: "manual" | "daily" | "weekly" | "monthly" | "yearly"; lastReset?: string };
 
 function resetIsDue(config: SalesReset, now: Date) {
@@ -592,13 +771,18 @@ export async function getSales(range?: SalesRange): Promise<Result<SalesSummary>
 
     let query = supabase
       .from("orders")
-      .select("id, num, placed, total, items")
+      .select("id, num, placed, total, items, payment, customer_name")
       .eq("status", "done")
       .order("placed", { ascending: false });
+    let statsQuery = supabase.from("orders").select("total, payment").eq("status", "done");
     if (range?.from) query = query.gte("placed", range.from);
     if (range?.to) query = query.lt("placed", range.to);
-    const { data, error } = await query;
+    if (range?.payment) query = query.eq("payment", range.payment);
+    if (range?.from) statsQuery = statsQuery.gte("placed", range.from);
+    if (range?.to) statsQuery = statsQuery.lt("placed", range.to);
+    const [{ data, error }, { data: statsRows, error: statsError }] = await Promise.all([query, statsQuery]);
     if (error) return fail(error.message);
+    if (statsError) return fail(statsError.message);
 
     const orders = (data ?? []) as OrderRow[];
     const pricing = await loadPricing(supabase);
@@ -621,6 +805,29 @@ export async function getSales(range?: SalesRange): Promise<Result<SalesSummary>
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 10);
 
+    const customerTotals = new Map<string, { orders: number; items: number; revenue: number }>();
+    for (const order of orders) {
+      const name = String(order.customer_name ?? "Walk-in").trim() || "Walk-in";
+      const current = customerTotals.get(name) ?? { orders: 0, items: 0, revenue: 0 };
+      current.orders += 1;
+      current.revenue += Number(order.total) || 0;
+      current.items += (Array.isArray(order.items) ? order.items : []).reduce((sum, item) => sum + (Number(item?.q) || 1), 0);
+      customerTotals.set(name, current);
+    }
+    const customerLeaderboard = [...customerTotals.entries()]
+      .map(([name, values]) => ({ name, ...values }))
+      .sort((a, b) => b.orders - a.orders || b.items - a.items)
+      .slice(0, 10);
+    const paymentStats = (statsRows ?? []).reduce((stats, row: Row) => {
+      const amount = Number(row.total) || 0;
+      const payment = row.payment === "qr" ? "qr" : "cash";
+      stats.overallSales += amount;
+      stats.overallOrders += 1;
+      if (payment === "qr") { stats.qrSales += amount; stats.qrOrders += 1; }
+      else { stats.cashSales += amount; stats.cashOrders += 1; }
+      return stats;
+    }, { overallSales: 0, cashSales: 0, qrSales: 0, overallOrders: 0, cashOrders: 0, qrOrders: 0 });
+
     return ok({
       lines,
       totalSales: orders.reduce((s, o) => s + (Number(o.total) || 0), 0),
@@ -628,18 +835,44 @@ export async function getSales(range?: SalesRange): Promise<Result<SalesSummary>
       orders: orders.length,
       items: lines.reduce((s, l) => s + l.qty, 0),
       leaderboard,
+      customerLeaderboard,
+      paymentStats,
     });
   } catch (e) {
     return fail(e);
   }
 }
 
-/** "Clear" hides finished orders from Sales. Nothing is deleted (status becomes "cleared"). */
-export async function clearSales(): Promise<Result<null>> {
+export async function resetSales(target: "pos" | "sheets" | "both"): Promise<Result<null>> {
   try {
     const supabase = await createClient();
-    const { error } = await supabase.from("orders").update({ status: "cleared" }).eq("status", "done");
-    if (error) return fail(error.message);
+
+    if (target !== "pos") {
+      const cfg = await readSetting<SheetsCfg>(supabase, "sheets");
+      if (!cfg?.url) return fail("Save the Google Sheets script URL in Settings first.");
+      try {
+        await postSheets(cfg.url, cfg.code, { resetSales: true });
+      } catch (e) {
+        return fail(e);
+      }
+    }
+
+    if (target !== "sheets") {
+      const { error } = await supabase.from("orders").update({ status: "cleared" }).eq("status", "done");
+      if (error) {
+        return fail(target === "both" ? `Google Sheets sales were reset, but POS sales could not be reset: ${error.message}` : error.message);
+      }
+    }
+
+    return ok(null);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function resetSalesLeaderboard(): Promise<Result<null>> {
+  try {
+    await writeSetting(await createClient(), "leaderboardResetAt", new Date().toISOString());
     return ok(null);
   } catch (e) {
     return fail(e);
@@ -680,6 +913,7 @@ function rowsFor(orders: OrderRow[], pricing: Pricing): (string | number)[][] {
       l.orderId,
       new Date(l.time).toLocaleDateString("en-CA", { timeZone: TZ }),
       new Date(l.time).toLocaleTimeString("en-GB", { timeZone: TZ, hour12: false }),
+      l.payment === "qr" ? "QR" : "Cash",
       l.product,
       [l.sugar ? `Sugar ${l.sugar}` : "", l.notes ?? ""].filter(Boolean).join(", "),
       l.price,
@@ -726,7 +960,7 @@ export async function sendPastSales(): Promise<Result<{ rows: number }>> {
 
     const { data, error } = await supabase
       .from("orders")
-      .select("id, num, placed, total, items")
+      .select("id, num, placed, total, items, payment")
       .in("status", ["done", "cleared"])
       .order("placed", { ascending: true });
     if (error) return fail(error.message);
@@ -819,7 +1053,7 @@ export async function setStar(menuId: number | string, on: boolean): Promise<Res
 async function loadStarInfo(supabase: DB) {
   const [ordersRes, menuRes, cfg] = await Promise.all([
     supabase.from("orders").select("items").in("status", ["done", "cleared"]),
-    supabase.from("menu").select("id, name, price"),
+    supabase.from("menu").select("id, name, price, category"),
     readSetting<Partial<StarCfg>>(supabase, "stars"),
   ]);
   if (ordersRes.error) throw new Error(ordersRes.error.message);
@@ -836,23 +1070,29 @@ async function loadStarInfo(supabase: DB) {
     id: m.id as number | string,
     name: String(m.name),
     price: Number(m.price) || 0,
+    category: String(m.category ?? "drinks") === "pastries" ? "pastries" : "drinks",
   }));
   const rawIds: unknown = cfg?.ids;
   const starCfg: StarCfg = { auto: cfg?.auto !== false, ids: Array.isArray(rawIds) ? rawIds.map(String) : [] };
 
   const effective = new Set<string>(starCfg.ids);
   if (starCfg.auto && counts.size > 0) {
-    const top = Math.max(...counts.values());
-    const best = [...counts.entries()].filter(([, q]) => q === top).slice(0, 3);
-    for (const [name] of best) {
-      const m = menu.find((x) => x.name === name);
+    const bestByCategory = new Map<string, { name: string; qty: number }>();
+    for (const [name, qty] of counts) {
+      const m = menu.find((item) => item.name === name);
+      if (!m) continue;
+      const current = bestByCategory.get(m.category);
+      if (!current || qty > current.qty) bestByCategory.set(m.category, { name, qty });
+    }
+    for (const { name } of bestByCategory.values()) {
+      const m = menu.find((item) => item.name === name);
       if (m) effective.add(String(m.id));
     }
   }
   return { counts, menu, cfg: starCfg, effective: [...effective] };
 }
 
-/** Used by the customer screen: the quick options and which drinks get the blue star. */
+/** Used by the customer screen: the quick options and which drinks get the gold star. */
 export async function getCustomerExtras(): Promise<{ options: string[]; starIds: string[] }> {
   const options = await getOrderOptions();
   try {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import type { Cafe } from "../../Admin2/_lib/menu";
 import HomeReturnButton from "../../_components/HomeReturnButton";
@@ -31,7 +32,7 @@ export default function Header({ cafe }: { cafe: Cafe }) {
         {/* top left: logo + store name */}
         <div className="flex items-center gap-3">
           <div className="emp-photo grid h-11 w-11 place-items-center overflow-hidden rounded-full border text-xl font-bold text-[#164734]">
-            {cafe.logo ? <img src={cafe.logo} alt="" className="h-full w-full object-contain" /> : cafe.name.charAt(0).toUpperCase()}
+            {cafe.logo ? <Image src={cafe.logo} alt="" width={44} height={44} unoptimized className="h-full w-full object-contain" /> : cafe.name.charAt(0).toUpperCase()}
           </div>
           <span className="text-xl font-bold tracking-tight text-[#164734]">{cafe.name}</span>
         </div>

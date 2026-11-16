@@ -24,6 +24,7 @@ export default function CloudStatus() {
   }, []);
 
   useEffect(() => {
+    if (pathname.startsWith("/Admin2")) return;
     check();
     const timer = window.setInterval(check, 30_000);
     const onVisibilityChange = () => {
@@ -34,7 +35,7 @@ export default function CloudStatus() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [check]);
+  }, [check, pathname]);
 
   if (pathname.startsWith("/Admin2")) return null;
 
@@ -45,7 +46,7 @@ export default function CloudStatus() {
     <button
       type="button"
       onClick={check}
-      className="fixed bottom-4 right-4 z-50 flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-left text-xs text-slate-700 shadow-lg backdrop-blur transition hover:opacity-75"
+      className="fixed bottom-4 right-4 z-50 flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-left text-xs text-slate-700 shadow-lg backdrop-blur transition-opacity hover:opacity-75"
       role="status"
       aria-label={connected ? "Connected to cloud database" : offline ? "Database connection unavailable" : "Checking database connection"}
       title="Check cloud connection"

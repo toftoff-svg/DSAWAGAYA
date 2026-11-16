@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import type { PaymentMethod } from '../Admin2/_lib/menu'
 
 // What the browser sends us: only WHICH drink, sugar choice, notes and quantity.
 type LineInput = {
@@ -20,20 +21,61 @@ type RecipeEntry = { ing: number | string; amt: number }
 export async function getCustomerExtras() {
   const supabase = await createClient()
 
-  // Fetch menu items to check for any starred/best-seller items
-  const { data: menu } = await supabase
-    .from('menu')
-    .select('id, star') // Adjust column name if your star column is named differently
-
-  const starIds = menu
-    ? menu.filter((m: any) => m.star).map((m: any) => String(m.id))
-    : []
-
-  const { data: setting } = await supabase
+  const { data: resetSetting, error: resetError } = await supabase
     .from('settings')
     .select('value')
-    .eq('id', 'wg_options')
+    .eq('id', 'wg_leaderboardResetAt')
     .maybeSingle()
+  if (resetError) throw new Error(resetError.message)
+
+  let ordersQuery = supabase.from('orders').select('items, placed').in('status', ['done', 'cleared'])
+  if (typeof resetSetting?.value === 'string') {
+    ordersQuery = ordersQuery.gte('placed', resetSetting.value)
+  }
+
+  const [{ data: menu }, { data: orders, error: ordersError }, { data: starsSetting }, { data: setting }] = await Promise.all([
+    supabase
+    .from('menu')
+    .select('id, name, category'),
+    ordersQuery,
+    supabase.from('settings').select('value').eq('id', 'wg_stars').maybeSingle(),
+    supabase.from('settings').select('value').eq('id', 'wg_options').maybeSingle(),
+  ])
+  if (ordersError) throw new Error(ordersError.message)
+
+  const menuRows = menu ?? []
+  const categoryByName = new Map(menuRows.map((item) => [String(item.name), String(item.category ?? 'drinks')]))
+  const quantities = new Map<string, number>()
+  for (const order of orders ?? []) {
+    for (const item of Array.isArray(order.items) ? order.items : []) {
+      const name = String(item?.name ?? '')
+      if (name) quantities.set(name, (quantities.get(name) ?? 0) + (Number(item?.q) || 1))
+    }
+  }
+
+  const bestByCategory = new Map<string, { name: string; qty: number }>()
+  for (const [name, qty] of quantities) {
+    const category = categoryByName.get(name) === 'pastries' ? 'pastries' : 'drinks'
+    const current = bestByCategory.get(category)
+    if (!current || qty > current.qty) bestByCategory.set(category, { name, qty })
+  }
+
+  const starConfig = starsSetting?.value && typeof starsSetting.value === 'object'
+    ? starsSetting.value as { ids?: unknown; auto?: boolean }
+    : {}
+  const configuredStars = starConfig.ids
+  const manualStarIds = Array.isArray(configuredStars) ? configuredStars.map(String) : []
+  const automaticStarIds = starConfig.auto === false
+    ? []
+    : menuRows
+        .filter((item) => bestByCategory.get(String(item.category ?? 'drinks'))?.name === String(item.name))
+        .map((item) => String(item.id))
+
+  const starIds = [...new Set([
+    ...manualStarIds,
+    ...automaticStarIds,
+  ])]
+
   const options = Array.isArray(setting?.value)
     ? setting.value.map(String).filter(Boolean)
     : ['Less ice', 'More sugar', 'No sugar', 'Less sweet']
@@ -58,27 +100,33 @@ async function deductOrderStock(orderId: number | string) {
 
   const usage: Record<string, number> = order.use
 
-  for (const [ingId, amount] of Object.entries(usage)) {
-    const { data: ingredient } = await supabase
-      .from('stock')
-      .select('stock')
-      .eq('id', ingId)
-      .single()
-
-    if (ingredient) {
-      const newStock = Math.max(0, Number(ingredient.stock) - Number(amount))
-      await supabase
+  await Promise.all(
+    Object.entries(usage).map(async ([ingId, amount]) => {
+      const { data: ingredient } = await supabase
         .from('stock')
-        .update({ stock: newStock })
+        .select('stock')
         .eq('id', ingId)
-    }
-  }
+        .single()
+
+      if (ingredient) {
+        const newStock = Math.max(0, Number(ingredient.stock) - Number(amount))
+        await supabase
+          .from('stock')
+          .update({ stock: newStock })
+          .eq('id', ingId)
+      }
+    })
+  )
 }
 
 // 3. Submit Order action
-export async function submitOrder(lines: LineInput[]): Promise<SubmitResult> {
+export async function submitOrder(lines: LineInput[], payment: PaymentMethod = 'cash', customerName = ''): Promise<SubmitResult> {
   if (!lines || lines.length === 0) {
     return { ok: false, error: 'The order is empty.' }
+  }
+  const normalizedCustomerName = customerName.trim().slice(0, 80)
+  if (!normalizedCustomerName) {
+    return { ok: false, error: 'Customer name is required.' }
   }
 
   const supabase = await createClient()
@@ -150,6 +198,8 @@ export async function submitOrder(lines: LineInput[]): Promise<SubmitResult> {
     total,
     items,
     use,
+    payment,
+    customer_name: normalizedCustomerName,
   })
 
   if (error) {

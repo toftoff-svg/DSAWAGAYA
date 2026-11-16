@@ -3,6 +3,8 @@
 export type MenuRow = {
   id: number;
   name: string;
+  description: string;
+  color: string;
   price: number;
   photo: string | null;
   recipe: unknown;
@@ -10,6 +12,8 @@ export type MenuRow = {
   sugar: { on?: boolean } | null; // sugar levels only show when "on" is true
   o: number; // sort order
 };
+
+export type PaymentMethod = "cash" | "qr";
 
 export type CartItem = {
   key: string;
@@ -27,6 +31,8 @@ export type QueueOrder = {
   createdAt: number;
   items: CartItem[];
   total: number;
+  payment: PaymentMethod;
+  customerName: string;
   timeoutMinutes: number | null;
 };
 

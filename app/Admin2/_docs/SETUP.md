@@ -1,7 +1,7 @@
 # Wagaya admin setup
 
 ## 1. Database
-Run `_docs/SETUP.sql` once in Supabase > SQL Editor. Your existing `settings` table (id + value) is reused.
+Run `_docs/SETUP.sql` in Supabase > SQL Editor. It adds the menu category column used to separate Drinks and Pastries; existing menu items default to Drinks. It also adds the Inventory restock-history column. Existing stock balances are not backfilled into history; additions are recorded from the migration onward. In Admin, edit each pastry and set its Menu section to Pastries.
 
 ## 2. Google Sheets (optional)
 1. Open your Google Sheet > Extensions > Apps Script.
@@ -12,6 +12,7 @@ Run `_docs/SETUP.sql` once in Supabase > SQL Editor. Your existing `settings` ta
 5. Copy the Web app URL.
 6. In the app: Settings > Google Sheets. Paste the URL and the same code.
    Press Save, then Test Connection.
+7. If you update the Apps Script later, deploy a new version of the existing web app deployment.
 
 ## 3. Stock deduction for customer orders (2 lines)
 Stock comes off the moment an order is placed. Orders from the admin pages already do this.
@@ -23,5 +24,7 @@ For orders placed on the customer screen, open the customer `actions.ts` and:
    `return { ok: true, orderNumber: num }`, add:
    `await deductOrderStock(id)`
 
+Until you add those lines, a customer order's stock comes off when it is marked Done instead.
+Cancelling an order puts its ingredients back.
 Until you add those lines, a customer order's stock comes off when it is marked Done instead.
 Cancelling an order puts its ingredients back.

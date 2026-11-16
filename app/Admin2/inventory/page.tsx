@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import IngredientModal from "../_components/IngredientModal";
 import Modal from "../_components/Modal";
-import { deleteIngredient, getIngredients, getSetting, setSetting, updateIngredient } from "../_lib/actions";
-import { type Ingredient } from "../_lib/menu";
+import RestockModal from "../_components/RestockModal";
+import { deleteIngredient, deleteRestockHistoryEntries, getIngredients, getSetting, setSetting, updateIngredient } from "../_lib/actions";
+import { TZ, type Ingredient, type RestockHistoryEntry } from "../_lib/menu";
 
 const statusOf = (i: Ingredient) => (i.stock <= 0 ? "Low" : i.stock <= i.low ? "Low" : "In stock");
 
@@ -25,6 +26,25 @@ const toneOf = (c: string) => {
   return TONES[h % TONES.length];
 };
 
+type StockHistoryRow = RestockHistoryEntry & {
+  ingredientId: number | string;
+  ingredientName: string;
+  unit: string;
+};
+
+const dateKey = (value: string) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+
 export default function InventoryPage() {
   const [ings, setIngs] = useState<Ingredient[]>([]);
   const [savedCats, setSavedCats] = useState<string[]>([]);
@@ -39,6 +59,14 @@ export default function InventoryPage() {
   const [catToRemove, setCatToRemove] = useState("");
   const [copied, setCopied] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showRestock, setShowRestock] = useState(false);
+  const [showMoreActions, setShowMoreActions] = useState(false);
+  const [historyPeriod, setHistoryPeriod] = useState<"all" | "date" | "range">("all");
+  const [historyDate, setHistoryDate] = useState(() => dateKey(new Date().toISOString()));
+  const [historyStart, setHistoryStart] = useState("");
+  const [historyEnd, setHistoryEnd] = useState("");
+  const [deletingHistory, setDeletingHistory] = useState(false);
 
   const load = useCallback(async () => {
     const [a, b] = await Promise.all([getIngredients(), getSetting("categories")]);
@@ -68,9 +96,71 @@ export default function InventoryPage() {
     return m;
   }, [ings]);
 
+  const filteredIngredients = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    return ings.filter((ingredient) => {
+      const matchesCategory = filter === "all" || ingredient.category === filter;
+      const searchable = `${ingredient.name} ${ingredient.category} ${ingredient.unit} ${ingredient.stock} ${statusOf(ingredient)}`.toLocaleLowerCase();
+      return matchesCategory && (!query || searchable.includes(query));
+    });
+  }, [filter, ings, searchQuery]);
+
+  const history = useMemo<StockHistoryRow[]>(
+    () =>
+      ings
+        .flatMap((ingredient) =>
+          (ingredient.stockHistory ?? []).map((entry) => ({
+            ...entry,
+            ingredientId: ingredient.id,
+            ingredientName: ingredient.name,
+            unit: ingredient.unit,
+          }))
+        )
+        .sort((a, b) => Date.parse(b.addedAt) - Date.parse(a.addedAt)),
+    [ings]
+  );
+  const invalidHistoryRange = historyPeriod === "range" && !!historyStart && !!historyEnd && historyStart > historyEnd;
+  const filteredHistory = useMemo(() => {
+    if (historyPeriod === "all") return history;
+    if (historyPeriod === "date") {
+      return historyDate ? history.filter((entry) => dateKey(entry.addedAt) === historyDate) : [];
+    }
+    if (!historyStart || !historyEnd || invalidHistoryRange) return [];
+    return history.filter((entry) => {
+      const date = dateKey(entry.addedAt);
+      return date >= historyStart && date <= historyEnd;
+    });
+  }, [history, historyDate, historyEnd, historyPeriod, historyStart, invalidHistoryRange]);
+
   const flash = (msg: string) => {
     setNote(msg);
     setTimeout(() => setNote(null), 2500);
+  };
+
+  const deleteHistory = async (rows: StockHistoryRow[], scope: string) => {
+    if (rows.length === 0 || deletingHistory) return;
+    const confirmed = window.confirm(
+      `Delete ${rows.length} restock history record${rows.length === 1 ? "" : "s"} ${scope}? Current stock balances will not change.`
+    );
+    if (!confirmed) return;
+
+    setDeletingHistory(true);
+    try {
+      const result = await deleteRestockHistoryEntries(
+        rows.map(({ ingredientId, id }) => ({ ingredientId, entryId: id }))
+      );
+      await load();
+      if (!result.ok) {
+        flash(`Couldn’t delete history: ${result.error}`);
+      } else {
+        flash(`Deleted ${result.data} history record${result.data === 1 ? "" : "s"}. Current stock was unchanged.`);
+      }
+    } catch (e) {
+      flash(`Couldn’t delete history: ${e instanceof Error ? e.message : String(e)}`);
+      await load();
+    } finally {
+      setDeletingHistory(false);
+    }
   };
 
   const patch = async (i: Ingredient, p: Partial<Pick<Ingredient, "category" | "stock" | "cost" | "unit">>) => {
@@ -113,8 +203,16 @@ export default function InventoryPage() {
   };
 
   const copyTable = async () => {
-    const head = ["Ingredient", "Category", "Status", "Stock", "Unit", "Cost"].join("\t");
-    const body = ings.map((i) => [i.name, i.category, statusOf(i), i.stock, i.unit, i.cost].join("\t"));
+    const head = ["Ingredient", "Category", "Status", "Stock", "Last Restocked", "Unit", "Cost"].join("\t");
+    const body = ings.map((i) => [
+      i.name,
+      i.category,
+      statusOf(i),
+      i.stock,
+      i.lastRestockedAt ? new Date(i.lastRestockedAt).toLocaleString() : "",
+      i.unit,
+      i.cost,
+    ].join("\t"));
     try {
       await navigator.clipboard.writeText([head, ...body].join("\n"));
       setCopied(true);
@@ -131,36 +229,83 @@ export default function InventoryPage() {
           <h1 className="text-xl font-bold">Inventory</h1>
           <p className="mb-4 text-xs opacity-70">Stock deducts automatically when orders are completed</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={copyTable} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
-            {copied ? "Copied!" : "Copy Whole Table"}
-          </button>
-          <button type="button" onClick={() => setShowNewCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
-            + New Category
-          </button>
-          <button type="button" onClick={() => setShowRemoveCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
-            − Remove Category
-          </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" onClick={() => setShowNew(true)} className="emp-bd emp-solid rounded-full border-2 px-3 py-1 text-sm font-bold">
             + New Ingredient
           </button>
+          <button
+            type="button"
+            onClick={() => setShowMoreActions((visible) => !visible)}
+            aria-expanded={showMoreActions}
+            aria-controls="inventory-more-actions"
+            aria-label={showMoreActions ? "Hide actions" : "More actions"}
+            title={showMoreActions ? "Hide actions" : "More actions"}
+            className="emp-bd h-8 w-8 rounded-full border-2 p-0 text-xs font-bold leading-none"
+          >
+            ...
+          </button>
+          <div
+            id="inventory-more-actions"
+            inert={!showMoreActions}
+            aria-hidden={!showMoreActions}
+            className={`flex flex-none items-center gap-2 overflow-hidden whitespace-nowrap transition-[translate,opacity] duration-300 ease-out ${
+              showMoreActions ? "max-w-[1000px] translate-x-0 opacity-100" : "max-w-0 translate-x-2 opacity-0"
+            }`}
+          >
+            <button type="button" onClick={copyTable} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
+              {copied ? "Copied!" : "Copy Whole Table"}
+            </button>
+            <button type="button" onClick={() => setShowNewCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
+              + New Category
+            </button>
+            <button type="button" onClick={() => setShowRemoveCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
+              − Remove Category
+            </button>
+            <button type="button" onClick={() => setShowRestock(true)} disabled={ings.length === 0} className="emp-bd rounded-full border-2 px-3 py-1 text-sm font-bold disabled:opacity-40">
+              + Add Stock
+            </button>
+          </div>
         </div>
       </div>
 
-      {categories.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          {["all", ...categories].map((c) => (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {categories.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {["all", ...categories].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setFilter(c)}
+                className={`emp-bd rounded-full border-2 px-4 py-1 text-sm ${filter === c ? "emp-solid font-bold" : ""}`}
+              >
+                {c === "all" ? "All" : c} · {counts[c] ?? 0}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+          <label className="min-w-0 flex-1 sm:w-72 sm:flex-none">
+            <span className="sr-only">Search inventory</span>
+            <input
+              type="search"
+              className="emp-input"
+              placeholder="Search ingredients..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </label>
+          {searchQuery && (
             <button
-              key={c}
               type="button"
-              onClick={() => setFilter(c)}
-              className={`emp-bd rounded-full border-2 px-4 py-1 text-sm ${filter === c ? "emp-solid font-bold" : ""}`}
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear inventory search"
+              className="emp-bd rounded-full border-2 px-3 py-1 text-sm"
             >
-              {c === "all" ? "All" : c} · {counts[c] ?? 0}
+              Clear
             </button>
-          ))}
+          )}
         </div>
-      )}
+      </div>
 
       {note && <p className="mb-3 text-sm">{note}</p>}
       {error && <p className="mb-3 text-sm emp-danger">Couldn’t load ingredients: {error}</p>}
@@ -168,13 +313,14 @@ export default function InventoryPage() {
 
       {/* Formatted Table Container */}
       <div className="emp-bd overflow-x-auto rounded-3xl border-2 p-4">
-        <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1040px] border-collapse text-left text-sm">
           <thead>
             <tr className="emp-row text-xs font-semibold uppercase tracking-wider opacity-70">
               <th scope="col" className="pb-3 px-2 font-semibold">Ingredient</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Category</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Status</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Stock</th>
+              <th scope="col" className="pb-3 px-2 font-semibold">Last Restocked</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Unit</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Cost / Unit (₱)</th>
               <th scope="col" className="pb-3 px-2 font-semibold">Update Stock</th>
@@ -183,17 +329,17 @@ export default function InventoryPage() {
           </thead>
 
           <tbody>
-            {!loading && ings.length === 0 && !error && (
+            {!loading && filteredIngredients.length === 0 && !error && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-sm opacity-70">
-                  No ingredients yet. Press “+ New Ingredient”.
+                <td colSpan={9} className="py-8 text-center text-sm opacity-70">
+                  {ings.length === 0
+                    ? "No ingredients yet. Press “+ New Ingredient”."
+                    : "No ingredients match your search and category."}
                 </td>
               </tr>
             )}
 
-            {ings
-              .filter((i) => filter === "all" || i.category === filter)
-              .map((i) => {
+            {filteredIngredients.map((i) => {
                 const status = statusOf(i);
                 const ok = status === "In stock";
                 return (
@@ -236,6 +382,10 @@ export default function InventoryPage() {
                     {/* Stock */}
                     <td className="py-3 px-2 font-medium">
                       {i.stock}
+                    </td>
+
+                    <td className="py-3 px-2 whitespace-nowrap opacity-80">
+                      {i.lastRestockedAt ? new Date(i.lastRestockedAt).toLocaleString() : "—"}
                     </td>
 
                     {/* Unit */}
@@ -294,6 +444,141 @@ export default function InventoryPage() {
 
       <p className="mt-2 text-xs opacity-70">Edit the number under “Update stock” and press Enter (or click away) to save.</p>
 
+      <section className="mt-8">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">Stock history</h2>
+            <p className="mt-1 text-xs opacity-70">
+              History starts with new stock additions after setup. Deleting history never changes current stock.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {historyPeriod !== "all" && filteredHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  deleteHistory(
+                    filteredHistory,
+                    historyPeriod === "date" ? `on ${historyDate}` : `from ${historyStart} to ${historyEnd}`
+                  )
+                }
+                disabled={deletingHistory}
+                className="emp-bd rounded-full border-2 px-3 py-1 text-sm emp-danger disabled:opacity-50"
+              >
+                Delete filtered ({filteredHistory.length})
+              </button>
+            )}
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => deleteHistory(history, "from all dates")}
+                disabled={deletingHistory}
+                className="emp-bd rounded-full border-2 px-3 py-1 text-sm emp-danger disabled:opacity-50"
+              >
+                Clear all history
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <label className="text-sm font-bold">
+            Show
+            <select
+              className="emp-input mt-1 min-w-40"
+              value={historyPeriod}
+              onChange={(event) => {
+                const value = event.target.value;
+                setHistoryPeriod(value === "date" || value === "range" ? value : "all");
+              }}
+              aria-label="Stock history period"
+            >
+              <option value="all">All dates</option>
+              <option value="date">Specific date</option>
+              <option value="range">Date range</option>
+            </select>
+          </label>
+          {historyPeriod === "date" && (
+            <label className="text-sm font-bold">
+              Date
+              <input
+                className="emp-input mt-1"
+                type="date"
+                value={historyDate}
+                onChange={(event) => setHistoryDate(event.target.value)}
+                aria-label="Filter stock history by date"
+              />
+            </label>
+          )}
+          {historyPeriod === "range" && (
+            <>
+              <label className="text-sm font-bold">
+                From
+                <input
+                  className="emp-input mt-1"
+                  type="date"
+                  value={historyStart}
+                  onChange={(event) => setHistoryStart(event.target.value)}
+                  aria-label="Stock history start date"
+                />
+              </label>
+              <label className="text-sm font-bold">
+                To
+                <input
+                  className="emp-input mt-1"
+                  type="date"
+                  value={historyEnd}
+                  onChange={(event) => setHistoryEnd(event.target.value)}
+                  aria-label="Stock history end date"
+                />
+              </label>
+            </>
+          )}
+        </div>
+        {invalidHistoryRange && (
+          <p className="mb-3 text-sm emp-danger">The start date must be on or before the end date.</p>
+        )}
+
+        <div className="emp-bd overflow-x-auto rounded-3xl border-2 p-4">
+          <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="emp-row text-xs font-semibold uppercase tracking-wider opacity-70">
+                <th scope="col" className="px-2 pb-3">Date added</th>
+                <th scope="col" className="px-2 pb-3">Ingredient</th>
+                <th scope="col" className="px-2 pb-3">Quantity</th>
+                <th scope="col" className="px-2 pb-3"><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredHistory.map((entry) => (
+                <tr key={`${entry.ingredientId}-${entry.id}`} className="emp-row text-sm">
+                  <td className="whitespace-nowrap px-2 py-3">{new Date(entry.addedAt).toLocaleString()}</td>
+                  <td className="px-2 py-3 font-semibold">{entry.ingredientName}</td>
+                  <td className="whitespace-nowrap px-2 py-3">{entry.amount} {entry.unit}</td>
+                  <td className="px-2 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => deleteHistory([entry], `for ${dateKey(entry.addedAt)}`)}
+                      disabled={deletingHistory}
+                      className="text-sm emp-danger hover:underline disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredHistory.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-sm opacity-70">
+                    {history.length === 0 ? "No stock additions have been recorded yet." : "No stock additions match this period."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {showNew && (
         <IngredientModal
           categories={categories}
@@ -302,6 +587,22 @@ export default function InventoryPage() {
             setShowNew(false);
             if (cat && !categories.includes(cat)) await saveCategories([...new Set([...savedCats, cat])]);
             load();
+          }}
+        />
+      )}
+
+      {showRestock && (
+        <RestockModal
+          ingredients={ings}
+          onClose={() => setShowRestock(false)}
+          onSaved={async (message) => {
+            setShowRestock(false);
+            await load();
+            flash(message);
+          }}
+          onPartial={async (message) => {
+            await load();
+            flash(message);
           }}
         />
       )}

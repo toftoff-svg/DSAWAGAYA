@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { DEFAULT_SUGAR, SUGAR_LEVELS, hasSugar, peso, type CartItem, type MenuRow } from "../_lib/menu";
 
@@ -49,18 +50,19 @@ export default function DrinkModal({ drink, options, onClose, onAdd }: Props) {
         aria-modal="true"
         aria-label={drink.name}
         onClick={(e) => e.stopPropagation()}
-        className="emp emp-bd max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[2rem] border-2 p-6"
+        className="emp emp-bd modal-scroll max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[2rem] border-2 p-6"
+        style={{ backgroundColor: drink.color || "#F7F4EC" }}
       >
         <div className="emp-bd mx-auto mb-4 grid h-20 w-20 place-items-center overflow-hidden rounded-3xl border-2">
           {drink.photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={drink.photo} alt={drink.name} className="h-full w-full object-contain" />
+            <Image src={drink.photo} alt={drink.name} width={80} height={80} unoptimized className="h-full w-full object-contain" />
           ) : (
             <span className="text-xs opacity-60">No photo</span>
           )}
         </div>
 
         <h2 className="text-2xl font-bold">{drink.name}</h2>
+        {drink.description && <p className="mt-1 text-sm opacity-75">{drink.description}</p>}
         <p className="text-sm opacity-70">Base price {peso(drink.price)}</p>
 
         {showSugar && (

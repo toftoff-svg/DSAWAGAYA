@@ -36,12 +36,14 @@ export default function QueuePage() {
               <header className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold">#{order.number}</h2>
+                <span className="text-sm font-semibold">{order.customerName || "Walk-in"}</span>
                 <span className="text-xs">{timeAgo(order.createdAt, now)}</span>
                 {idx === 0 && <span className="emp-bd rounded-full border-2 px-3 py-0.5 text-xs">Next up</span>}
                 {overdue && <span className="rounded-full border-2 border-red-500 px-3 py-0.5 text-xs font-bold text-red-600">Waiting too long</span>}
               </div>
-                <span className="text-right">
+                  <span className="text-right">
                   <span className="block text-lg font-bold">{peso(order.total)}</span>
+                  <span className="text-xs uppercase">{order.payment === "qr" ? "QR" : "Cash"}</span>
                   <span className="text-xs">{expanded === order.id ? "Hide order" : `${order.items.reduce((sum, item) => sum + item.qty, 0)} drinks · View order`}</span>
                 </span>
               </header>

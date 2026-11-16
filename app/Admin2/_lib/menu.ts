@@ -5,11 +5,15 @@ export const TZ = "Asia/Manila"; // used for dates sent to Google Sheets
 
 export type RecipeLine = { ing: number | string; amt: number };
 export type AddonDef = { name: string; price: number; ing: number | string | null; amt: number };
+export type PaymentMethod = "cash" | "qr";
 
 export type MenuRow = {
   id: number;
   name: string;
+  description: string;
+  color: string;
   price: number;
+  category: "drinks" | "pastries";
   photo: string | null;
   recipe: RecipeLine[];
   addons: AddonDef[];
@@ -33,6 +37,8 @@ export type QueueOrder = {
   createdAt: number;
   items: CartItem[];
   total: number;
+  payment: PaymentMethod;
+  customerName: string;
 };
 
 export type Ingredient = {
@@ -40,9 +46,17 @@ export type Ingredient = {
   name: string;
   category: string;
   stock: number;
+  lastRestockedAt?: string | null;
+  stockHistory?: RestockHistoryEntry[];
   unit: string;
   low: number;
   cost: number;
+};
+
+export type RestockHistoryEntry = {
+  id: string;
+  amount: number;
+  addedAt: string;
 };
 
 export type SaleLine = {
@@ -57,14 +71,18 @@ export type SaleLine = {
   price: number;
   cost: number;
   profit: number;
+  payment: PaymentMethod;
+  customerName: string;
 };
+
+export type CustomerLeaderRow = { name: string; orders: number; items: number; revenue: number };
 
 export type LeaderRow = {
   id: string | null; // menu id, when the drink is still on the menu
   name: string;
   qty: number;
   revenue: number;
-  starred: boolean; // shows the blue star on the customer screen
+  starred: boolean; // shows the gold star on the customer screen
   manual: boolean; // star was added by hand
 };
 
@@ -75,6 +93,8 @@ export type SalesSummary = {
   orders: number;
   items: number;
   leaderboard: LeaderRow[];
+  customerLeaderboard: CustomerLeaderRow[];
+  paymentStats: { overallSales: number; cashSales: number; qrSales: number; overallOrders: number; cashOrders: number; qrOrders: number };
 };
 
 export type Cafe = { name: string; logo: string | null };

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cafe } from "../_lib/menu";
@@ -43,6 +44,7 @@ export default function Header({ cafe }: { cafe: Cafe }) {
       if (document.visibilityState === "visible") checkCloud();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -55,8 +57,7 @@ export default function Header({ cafe }: { cafe: Cafe }) {
         <div className="flex items-center gap-3">
           <div className="emp-bd grid h-10 w-10 place-items-center overflow-hidden rounded-[1.15rem] border text-lg font-black shadow-sm">
             {cafe.logo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={cafe.logo} alt="" className="h-full w-full object-contain" />
+              <Image src={cafe.logo} alt="" width={40} height={40} unoptimized className="h-full w-full object-contain" />
             ) : (
               cafe.name.charAt(0).toUpperCase()
             )}

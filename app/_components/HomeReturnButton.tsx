@@ -104,7 +104,7 @@ export default function HomeReturnButton({ requireCode = true }: { requireCode?:
               ×
             </button>
             <div className="mb-5 text-center">
-              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[#204F37] text-lg font-black text-[#FFFDF6]">W</div>
+              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[#0e4bbe] text-lg font-black text-[#FFFDF6]">W</div>
               <h2 className="text-2xl font-bold">Return to Home</h2>
               <p className="mt-1 text-sm text-[#4C6B54]">Enter the admin or employee code to continue.</p>
             </div>

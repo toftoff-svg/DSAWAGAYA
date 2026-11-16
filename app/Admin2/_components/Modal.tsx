@@ -25,7 +25,7 @@ export default function Modal({ title, onClose, children, wide, closeOnEsc = tru
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`emp emp-bd max-h-[86vh] w-full overflow-y-auto rounded-[1.5rem] border-2 p-4 sm:p-5 ${
+        className={`emp emp-bd modal-scroll max-h-[86vh] w-full overflow-y-auto rounded-[1.5rem] border-2 p-4 sm:p-5 ${
           wide ? "max-w-lg" : "max-w-md"
         }`}
       >
