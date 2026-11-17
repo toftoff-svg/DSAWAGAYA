@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   experimental: {
     agentFeedback: false,
+    agentUpgrade: "security",
   },
   cacheComponents: true,
   partialPrefetching: true,
