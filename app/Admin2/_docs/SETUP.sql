@@ -1,4 +1,4 @@
--- Run this once in Supabase > SQL Editor
+-- Run this in Supabase > SQL Editor when applying setup/schema updates.
 -- (Your existing `settings` table is used as it is: columns id + value.)
 
 -- Separates customer menu items into the Drinks and Pastries pages.
@@ -31,8 +31,16 @@ alter table orders add column if not exists customer_name text not null default 
 -- Stores the most recent restock date alongside each ingredient's current balance.
 alter table ings add column if not exists last_restocked_at timestamptz;
 
+-- Stores each ingredient's inventory category.
+alter table ings add column if not exists category text not null default '';
+
+-- Stores each ingredient's current stock balance.
+alter table ings add column if not exists stock numeric not null default 0;
+
 -- Keeps dated stock-addition records with each ingredient for Inventory history.
 alter table ings add column if not exists stock_history jsonb not null default '[]'::jsonb;
 update ings set stock_history = '[]'::jsonb where stock_history is null;
 alter table ings alter column stock_history set default '[]'::jsonb;
 alter table ings alter column stock_history set not null;
+
+notify pgrst, 'reload schema';

@@ -741,7 +741,7 @@ function linesOf(o: OrderRow, p: Pricing): SaleLine[] {
       cost,
       profit: price - cost,
       payment: o.payment === "qr" ? "qr" : "cash",
-      customerName: String(o.customer_name ?? "Walk-in"),
+      customerName: String(o.customer_name ?? "").trim() || "Walk-in",
     };
   });
 }
@@ -940,6 +940,7 @@ function rowsFor(orders: OrderRow[], pricing: Pricing): (string | number)[][] {
       l.price,
       l.cost,
       l.profit,
+      l.customerName,
     ])
   );
 }
@@ -981,7 +982,7 @@ export async function sendPastSales(): Promise<Result<{ rows: number }>> {
 
     const { data, error } = await supabase
       .from("orders")
-      .select("id, num, placed, total, items, payment")
+      .select("id, num, placed, total, items, payment, customer_name")
       .in("status", ["done", "cleared"])
       .order("placed", { ascending: true });
     if (error) return fail(error.message);

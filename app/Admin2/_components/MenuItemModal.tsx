@@ -3,10 +3,10 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BestSellerStar from "../../_components/BestSellerStar";
+import ImageCropModal from "./ImageCropModal";
 import IngredientModal from "./IngredientModal";
 import Modal from "./Modal";
 import { deleteMenuItem, getIngredients, saveMenuItem, setStar } from "../_lib/actions";
-import { fileToDataUrl } from "../_lib/image";
 import { hasSugar, peso, type Ingredient, type MenuRow } from "../_lib/menu";
 
 type Props = {
@@ -66,16 +66,21 @@ export default function MenuItemModal({ item, defaultCategory = "drinks", ingred
   const fileRef = useRef<HTMLInputElement>(null);
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [ingredientQuery, setIngredientQuery] = useState("");
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
 
   const idFor = (s: string) => ingredients.find((i) => String(i.id) === s)?.id ?? s;
 
-  const pickFile = async (file?: File) => {
+  const pickFile = (file?: File) => {
     if (!file) return;
-    try {
-      setPhoto(await fileToDataUrl(file, 600, "image/png"));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn’t use that picture.");
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file.");
+      return;
     }
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const openCropExisting = () => {
+    if (photo) setCropSrc(photo);
   };
 
   const save = async () => {
@@ -212,6 +217,15 @@ export default function MenuItemModal({ item, defaultCategory = "drinks", ingred
           >
             {photo ? "Change image" : "Upload image"}
           </button>
+          {photo && (
+            <button
+              type="button"
+              onClick={openCropExisting}
+              className="emp-bd emp-hover rounded-full border-2 px-4 py-2 text-sm font-semibold"
+            >
+              Crop image
+            </button>
+          )}
           <span className="text-xs opacity-70">
             {photo ? "Image selected" : "Choose a photo for this menu item."}
           </span>
@@ -221,7 +235,7 @@ export default function MenuItemModal({ item, defaultCategory = "drinks", ingred
             accept="image/*"
             className="emp-file-input"
             onChange={(e) => {
-              void pickFile(e.target.files?.[0]);
+              pickFile(e.target.files?.[0]);
               e.currentTarget.value = "";
             }}
           />
@@ -423,6 +437,18 @@ export default function MenuItemModal({ item, defaultCategory = "drinks", ingred
           const res = await getIngredients();
           if (res.ok) setIngredients(res.data);
         }}
+      />
+    )}
+
+    {cropSrc && (
+      <ImageCropModal
+        src={cropSrc}
+        outputSize={600}
+        onCrop={(dataUrl) => {
+          setPhoto(dataUrl);
+          setCropSrc(null);
+        }}
+        onCancel={() => setCropSrc(null)}
       />
     )}
     </>

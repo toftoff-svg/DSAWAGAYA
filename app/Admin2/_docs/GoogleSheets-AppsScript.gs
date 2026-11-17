@@ -1,4 +1,4 @@
-// Paste this into Extensions > Apps Script inside your Google Sheet.
+  // Paste this into Extensions > Apps Script inside your Google Sheet.
 const SECRET = "wya"; // must match the code you type in Settings > Google Sheets
 const SHEET_NAME = "Sales";
 const INGREDIENTS_SHEET_NAME = "Ingredient Stocks";

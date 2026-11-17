@@ -1,7 +1,7 @@
 # Wagaya admin setup
 
 ## 1. Database
-Run `_docs/SETUP.sql` in Supabase > SQL Editor. It adds the menu category column used to separate Drinks and Pastries; existing menu items default to Drinks. It also adds the Inventory restock-history column. Existing stock balances are not backfilled into history; additions are recorded from the migration onward. In Admin, edit each pastry and set its Menu section to Pastries.
+Run `_docs/SETUP.sql` in Supabase > SQL Editor to apply schema updates. It adds the menu category column used to separate Drinks and Pastries; existing menu items default to Drinks. It also adds the ingredient category and stock columns, the Inventory restock-history column, and refreshes Supabase's schema cache. Existing stock balances are not backfilled into history; additions are recorded from the migration onward. In Admin, edit each pastry and set its Menu section to Pastries.
 
 ## 2. Google Sheets (optional)
 1. Open your Google Sheet > Extensions > Apps Script.

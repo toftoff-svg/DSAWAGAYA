@@ -194,12 +194,22 @@ export default function InventoryPage() {
   };
 
   const removeCategory = async () => {
-    if (!catToRemove) return;
+    if (!categories.includes(catToRemove)) return;
     await saveCategories(savedCats.filter((c) => c !== catToRemove));
     await Promise.all(ings.filter((i) => i.category === catToRemove).map((i) => updateIngredient(i.id, { category: "" })));
     setCatToRemove("");
     setShowRemoveCat(false);
     load();
+  };
+
+  const openRemoveCategory = () => {
+    setCatToRemove("");
+    setShowRemoveCat(true);
+  };
+
+  const closeRemoveCategory = () => {
+    setCatToRemove("");
+    setShowRemoveCat(false);
   };
 
   const copyTable = async () => {
@@ -258,7 +268,7 @@ export default function InventoryPage() {
             <button type="button" onClick={() => setShowNewCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
               + New Category
             </button>
-            <button type="button" onClick={() => setShowRemoveCat(true)} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
+            <button type="button" onClick={openRemoveCategory} className="emp-bd rounded-full border-2 px-3 py-1 text-sm">
               − Remove Category
             </button>
             <button type="button" onClick={() => setShowRestock(true)} disabled={ings.length === 0} className="emp-bd rounded-full border-2 px-3 py-1 text-sm font-bold disabled:opacity-40">
@@ -629,24 +639,36 @@ export default function InventoryPage() {
       )}
 
       {showRemoveCat && (
-        <Modal title="Remove Category" onClose={() => setShowRemoveCat(false)}>
+        <Modal title="Remove Category" onClose={closeRemoveCategory}>
           <p className="mb-3 text-sm opacity-70">Ingredients in that category will be left without a category.</p>
-          <select className="emp-input" value={catToRemove} onChange={(e) => setCatToRemove(e.target.value)}>
-            <option value="">Choose a category</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
+          <input
+            autoFocus
+            className="emp-input"
+            list="remove-category-options"
+            placeholder="Search or choose a category"
+            aria-label="Category to remove"
+            value={catToRemove}
+            onChange={(e) => {
+              const value = e.target.value;
+              const match = categories.find((category) =>
+                category.toLocaleLowerCase() === value.trim().toLocaleLowerCase()
+              );
+              setCatToRemove(match ?? value);
+            }}
+          />
+          <datalist id="remove-category-options">
+            {categories.map((category) => (
+              <option key={category} value={category} />
             ))}
-          </select>
+          </datalist>
           <div className="mt-5 flex items-center justify-between">
-            <button type="button" onClick={() => setShowRemoveCat(false)} className="emp-bd rounded-full border-2 px-5 py-2">
+            <button type="button" onClick={closeRemoveCategory} className="emp-bd rounded-full border-2 px-5 py-2">
               Cancel
             </button>
             <button
               type="button"
               onClick={removeCategory}
-              disabled={!catToRemove}
+              disabled={!categories.includes(catToRemove)}
               className="emp-bd emp-solid rounded-full border-2 px-5 py-2 font-bold disabled:opacity-40"
             >
               Remove
